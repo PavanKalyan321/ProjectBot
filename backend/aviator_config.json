@@ -1,0 +1,24 @@
+{
+  "stake_coords": [
+    341,
+    797
+  ],
+  "bet_button_coords": [
+    381,
+    918
+  ],
+  "cashout_coords": [
+    381,
+    918
+  ],
+  "multiplier_region": [
+    297,
+    521,
+    358,
+    35
+  ],
+  "cashout_delay": 2.0,
+  "initial_stake": 25,
+  "max_stake": 1000,
+  "stake_increase_percent": 20
+}
