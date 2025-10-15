@@ -22,6 +22,10 @@ class RoundHistoryTracker:
         self.history_region = history_region  # (x, y, width, height)
         self.csv_file = "aviator_rounds_history.csv"
         self.last_round_data = None
+        self.last_logged_multiplier = None
+        self.last_log_time = 0
+        self.log_cooldown = 2.0  # Minimum seconds between auto-logs
+        self.local_history_buffer = deque(maxlen=10)  # Keep last 10 rounds in memory
 
         # Initialize CSV file with headers if it doesn't exist
         if not os.path.exists(self.csv_file):
@@ -44,11 +48,81 @@ class RoundHistoryTracker:
             self.tesseract_available = False
 
     def capture_history_region(self):
-        """Capture screenshot of history bar region"""
         if not self.history_region:
             return None
-        screenshot = pyautogui.screenshot(region=self.history_region)
-        return screenshot
+
+        try:
+            x, y, w, h = self.history_region
+
+            # Validate coordinates
+            if w <= 0 or h <= 0:
+                print(f"⚠️ Invalid history region: width={w}, height={h}")
+                return None
+
+            if x < 0 or y < 0:
+                print(f"⚠️ Invalid history region: x={x}, y={y}")
+                return None
+
+            screenshot = pyautogui.screenshot(region=(x, y, w, h))
+            return screenshot
+        except Exception as e:
+            print(f"⚠️ Error capturing history region: {e}")
+            return None
+    
+    def auto_log_from_clipboard(self, detector, force=False):
+        try:
+            # Check cooldown to avoid duplicate logging
+            current_time = time.time()
+            if not force and (current_time - self.last_log_time) < self.log_cooldown:
+                print(f"  ⏳ Cooldown active ({self.log_cooldown - (current_time - self.last_log_time):.1f}s remaining)")
+                return False, None
+
+            # Read multiplier from clipboard
+            multiplier = detector.read_multiplier_from_clipboard()
+
+            if multiplier is None:
+                print("  ⚠️ Failed to read multiplier")
+                return False, None
+
+            # Check for duplicate
+            if not force and multiplier == self.last_logged_multiplier:
+                print(f"  ⏭️ Skipping duplicate: {multiplier}x")
+                return False, multiplier
+
+            # Log to CSV
+            self.log_round(
+                multiplier=multiplier,
+                bet_placed=False,
+                stake=0,
+                cashout_time=0,
+                profit_loss=0,
+                prediction=None,
+                confidence=0,
+                pred_range=(0, 0)
+            )
+
+            # Update local buffer
+            self.local_history_buffer.append({
+                'multiplier': multiplier,
+                'timestamp': datetime.now().isoformat(),
+                'round_id': datetime.now().strftime("%Y%m%d%H%M%S%f")
+            })
+
+            # Update tracking variables
+            self.last_logged_multiplier = multiplier
+            self.last_log_time = current_time
+
+            print(f"  ✅ Auto-logged: {multiplier}x | Buffer size: {len(self.local_history_buffer)}")
+            return True, multiplier
+
+        except Exception as e:
+            print(f"  ❌ Auto-log error: {e}")
+            return False, None
+
+    def get_local_history(self, n=10):
+        """Get last N rounds from local buffer (fastest access)"""
+        history = list(self.local_history_buffer)
+        return history[-n:] if len(history) >= n else history
 
     # ----------------------
     # Auto-detecting extractor
@@ -523,42 +597,78 @@ class GameStateDetector:
             self.tesseract_available = False
             
     def read_multiplier_from_clipboard(self):
-        """Read multiplier by selecting text and using clipboard"""
         try:
-            # Clear clipboard
+            # Clear clipboard first
             win32clipboard.OpenClipboard()
             win32clipboard.EmptyClipboard()
             win32clipboard.CloseClipboard()
+            time.sleep(0.1)
             
-            # Select text at coordinates
-            x1, y1 = self.multiplier_coords[0]
-            x2, y2 = self.multiplier_coords[1]
+            # Updated coordinates for text selection
+            x1, y1 = 19, 1101
+            x2, y2 = 98, 1106
             
-            # Move to start, click and drag to end
-            pyautogui.moveTo(x1, y1)
+            # Move to start position
+            pyautogui.moveTo(x1, y1, duration=0.1)
+            time.sleep(0.05)
+            
+            # Click and drag to select text
             pyautogui.mouseDown()
-            pyautogui.moveTo(x2, y2)
+            pyautogui.moveTo(x2, y2, duration=0.1)
             pyautogui.mouseUp()
+            time.sleep(0.1)
             
-            # Copy (Ctrl+C)
+            # Copy to clipboard
             pyautogui.hotkey('ctrl', 'c')
-            time.sleep(0.1)  # Wait for copy
+            time.sleep(0.15)
             
-            # Get from clipboard
+            # Read from clipboard
             win32clipboard.OpenClipboard()
-            data = win32clipboard.GetClipboardData(win32con.CF_TEXT)
+            try:
+                data = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
+            except:
+                try:
+                    data = win32clipboard.GetClipboardData(win32con.CF_TEXT)
+                except:
+                    data = None
             win32clipboard.CloseClipboard()
             
+            if not data:
+                print("  ⚠️ Clipboard empty")
+                return None
+                
             # Convert and clean text
             if isinstance(data, bytes):
-                text = data.decode('utf-8')
+                text = data.decode('utf-8', errors='ignore')
             else:
                 text = str(data)
             
-            # Extract multiplier value
-            match = re.search(r'(\d+\.?\d*)x?', text)
-            if match:
-                return float(match.group(1))
+            text = text.strip()
+            print(f'  📋 Copied text: "{text}"')
+            
+            # Extract multiplier value - handle various formats
+            # Examples: "1.5x", "1.5", "x1.5", "1.50x"
+            text_clean = text.replace(' ', '').replace(',', '.')
+            
+            # Try different patterns
+            patterns = [
+                r'(\d+\.?\d*)x',  # "1.5x" or "1x"
+                r'x(\d+\.?\d*)',  # "x1.5"
+                r'^(\d+\.?\d*)$', # Just "1.5"
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, text_clean, re.IGNORECASE)
+                if match:
+                    try:
+                        value = float(match.group(1))
+                        if 0 < value <= 1000:  # Sanity check
+                            print(f'  ✓ Parsed multiplier: {value}x')
+                            return value
+                    except:
+                        continue
+            
+            print(f'  ⚠️ Could not parse multiplier from: "{text}"')
             return None
             
         except Exception as e:
@@ -927,7 +1037,21 @@ class AviatorBotML:
                 print(f"\n--- Round {self.stats['rounds_observed'] + 1} ---")
                 
                 if not self.detector.wait_for_awaiting_message(timeout=60):
-                    print("⚠️ Timeout"); continue
+                    print("⚠️ Timeout")
+                    continue
+
+                # AUTO-LOG: Read and log the completed round
+                print("  🤖 Auto-logging completed round...")
+                time.sleep(0.3)  # Small delay to ensure multiplier is displayed
+                success, logged_mult = self.history_tracker.auto_log_from_clipboard(self.detector)
+
+                if success:
+                    print(f"  📝 Logged to CSV: {logged_mult}x")
+                    # Update local buffer for quick access
+                    recent = self.history_tracker.get_local_history(n=5)
+                    print(f"  📊 Recent history: {[r['multiplier'] for r in recent]}")
+                else:
+                    print("  ⚠️ Auto-log failed, continuing...")
 
                 print("  🤖 Generating signal...")
                 signal = self.ml_generator.generate_ensemble_signal() if self.ml_generator else {
@@ -1118,6 +1242,16 @@ def main():
     if not bot.ml_generator and bot.history_tracker:
         bot.ml_generator = MLSignalGenerator(bot.history_tracker)
 
+
+    # --- start AutoClipboardLogger with the live bot instance ---
+    try:
+        auto_logger = AutoClipboardLogger(bot, poll_interval=0.6, cooldown=3.0, debug=True)
+        auto_logger.start()
+        bot.auto_clipboard_logger = auto_logger
+        print("✓ AutoClipboardLogger started in background.")
+    except Exception as e:
+        print("⚠️ Could not start AutoClipboardLogger:", e)
+
     # Bootstrap last 5 rounds into CSV (non-destructive dedupe)
     try:
         if bot.history_tracker and bot.history_region:
@@ -1161,3 +1295,143 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# -------------------------
+# AutoClipboardLogger (minimal, non-invasive)
+# -------------------------
+import threading
+import pyperclip
+
+class AutoClipboardLogger(threading.Thread):
+    """
+    Background thread that watches for the game 'AWAITING' state using the existing
+    GameStateDetector and automatically selects the multiplier text, copies it to
+    the clipboard, parses the numeric multiplier and logs it to the existing history CSV
+    via RoundHistoryTracker.log_round(...).
+    """
+    def __init__(self, bot, poll_interval=0.6, cooldown=3.0, debug=False):
+        super().__init__(daemon=True)
+        self.bot = bot
+        self.poll_interval = poll_interval
+        self.cooldown = cooldown
+        self.debug = debug
+        self._stop = threading.Event()
+        self.last_logged_time = 0
+        self.detector = getattr(bot, "detector", None)
+        if self.detector is None and getattr(bot, "multiplier_region", None):
+            try:
+                self.detector = GameStateDetector(bot.multiplier_region)
+            except Exception:
+                self.detector = None
+
+    def stop(self):
+        self._stop.set()
+
+    def _select_and_copy(self):
+        try:
+            mr = getattr(self.bot, "multiplier_region", None)
+            if mr:
+                x, y, w, h = mr
+                cx = int(x + w/2)
+                cy = int(y + h/2)
+                pyautogui.moveTo(cx, cy, duration=0.03)
+                pyautogui.click(clicks=2, interval=0.06)
+            else:
+                det = getattr(self.bot, "detector", None)
+                if det and hasattr(det, "multiplier_coords"):
+                    (x1,y1),(x2,y2) = det.multiplier_coords
+                    pyautogui.moveTo(x1, y1, duration=0.02)
+                    pyautogui.mouseDown()
+                    pyautogui.moveTo(x2, y2, duration=0.02)
+                    pyautogui.mouseUp()
+                else:
+                    return None
+
+            import sys
+            if sys.platform == 'darwin':
+                pyautogui.hotkey('command', 'c')
+            else:
+                pyautogui.hotkey('ctrl', 'c')
+
+            time.sleep(0.08)
+
+            txt = ""
+            for _ in range(8):
+                try:
+                    txt = pyperclip.paste()
+                except Exception:
+                    txt = ""
+                if txt and str(txt).strip():
+                    break
+                time.sleep(0.05)
+            return txt
+        except Exception as e:
+            if self.debug:
+                print("AutoClipboardLogger: select_and_copy error:", e)
+            return None
+
+    def _parse_multiplier(self, text):
+        if not text:
+            return None
+        try:
+            m = re.search(r"\d+(?:\.\d+)?", str(text))
+            if m:
+                return float(m.group(0))
+        except Exception:
+            return None
+        return None
+
+    def run(self):
+        if self.debug:
+            print("AutoClipboardLogger: started")
+        while not self._stop.is_set():
+            try:
+                awaiting = False
+                if self.detector:
+                    try:
+                        awaiting = self.detector.is_awaiting_next_flight()
+                    except Exception:
+                        awaiting = False
+                else:
+                    awaiting = False
+
+                if awaiting:
+                    now = time.time()
+                    if now - self.last_logged_time < self.cooldown:
+                        time.sleep(self.poll_interval)
+                        continue
+
+                    time.sleep(0.12)
+
+                    raw = self._select_and_copy()
+                    parsed = self._parse_multiplier(raw)
+
+                    ts = datetime.utcnow().isoformat()
+                    if parsed is not None:
+                        try:
+                            if getattr(self.bot, "history_tracker", None):
+                                self.bot.history_tracker.log_round(parsed, bet_placed=False, stake=0, cashout_time=0, profit_loss=0)
+                            if self.debug:
+                                print(f"[{ts}] AutoClipboardLogger: parsed {parsed} from clipboard -> logged")
+                        except Exception as e:
+                            if self.debug:
+                                print("AutoClipboardLogger: failed to log_round:", e)
+                        self.last_logged_time = time.time()
+                    else:
+                        try:
+                            if getattr(self.bot, "history_tracker", None):
+                                self.bot.history_tracker.log_round(None, bet_placed=False, stake=0, cashout_time=0, profit_loss=0)
+                            if self.debug:
+                                print(f"[{ts}] AutoClipboardLogger: failed to parse clipboard {repr(raw)} -> logged raw")
+                        except Exception as e:
+                            if self.debug:
+                                print("AutoClipboardLogger: failed to log raw:", e)
+                        self.last_logged_time = time.time()
+
+                time.sleep(self.poll_interval)
+            except Exception as e:
+                if self.debug:
+                    print("AutoClipboardLogger exception:", e)
+                time.sleep(self.poll_interval)
+
+# ---- end AutoClipboardLogger ----
