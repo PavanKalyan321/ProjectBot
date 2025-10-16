@@ -1319,6 +1319,7 @@ def main():
     bot.dashboard = AviatorDashboard(bot, port=5000)
     bot.dashboard.start()
     
+    
     print("\n✅ Dashboard: http://localhost:5000")
     print("\nPress Enter to start...")
     input()

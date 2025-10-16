@@ -1,0 +1,5 @@
+timestamp,round_id,multiplier,bet_placed,stake_amount,cashout_time,profit_loss,model_prediction,model_confidence,model_predicted_range_low,model_predicted_range_high
+2025-10-16 10:50:03,20251016105003479161,3.09,False,0,0,0,,0,0,0
+2025-10-16 10:50:05,20251016105005493548,2.0,False,0,0,0,0,0,0,0
+2025-10-16 10:50:21,20251016105021338654,2.55,False,0,0,0,,0,0,0
+2025-10-16 10:50:22,20251016105022335249,2.0,False,0,0,0,0,0,0,0

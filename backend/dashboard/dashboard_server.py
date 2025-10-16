@@ -1,4 +1,89 @@
-<!DOCTYPE html>
+"""Web dashboard server for real-time bot monitoring."""
+
+import os
+import time
+import threading
+import webbrowser
+from collections import deque
+from flask import Flask, render_template, jsonify
+from flask_socketio import SocketIO
+
+
+class AviatorDashboard:
+    """Real-time web dashboard for bot monitoring."""
+    
+    def __init__(self, bot, port=5000):
+        """
+        Initialize dashboard server.
+        
+        Args:
+            bot: AviatorBotML instance
+            port: Port number for web server
+        """
+        self.bot = bot
+        self.port = port
+        self.app = Flask(__name__, template_folder='templates')
+        self.socketio = SocketIO(self.app, cors_allowed_origins="*")
+        self.is_running = False
+        self.round_history = deque(maxlen=100)
+        self._setup_routes()
+        self._create_dashboard_template()
+        
+    def _setup_routes(self):
+        """Setup Flask routes."""
+        @self.app.route('/')
+        def index():
+            return render_template('dashboard.html')
+        
+        @self.app.route('/api/stats')
+        def get_stats():
+            profit = self.bot.stats['total_return'] - self.bot.stats['total_bet']
+            return jsonify({
+                'stats': self.bot.stats,
+                'current_stake': self.bot.current_stake,
+                'history': list(self.round_history),
+                'cumulative_profit': profit
+            })
+    
+    def emit_round_update(self, round_data):
+        """
+        Send round update to dashboard.
+        
+        Args:
+            round_data: Dictionary containing round information
+        """
+        self.round_history.append(round_data)
+        try:
+            self.socketio.emit('round_update', round_data)
+        except:
+            pass
+    
+    def emit_stats_update(self):
+        """Send stats update to dashboard."""
+        try:
+            profit = self.bot.stats['total_return'] - self.bot.stats['total_bet']
+            self.socketio.emit('stats_update', {
+                'stats': self.bot.stats,
+                'current_stake': self.bot.current_stake,
+                'cumulative_profit': profit
+            })
+        except:
+            pass
+    
+    def _create_dashboard_template(self):
+        """Create dashboard HTML file."""
+        os.makedirs('templates', exist_ok=True)
+        
+        # Read the existing template
+        template_path = os.path.join(os.path.dirname(__file__), 'templates', 'dashboard.html')
+        
+        # If template doesn't exist in dashboard folder, create it
+        if not os.path.exists(template_path):
+            self._generate_dashboard_html(template_path)
+    
+    def _generate_dashboard_html(self, path):
+        """Generate dashboard HTML content."""
+        html_content = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -169,7 +254,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1><div class="status-indicator"></div>✈️ Aviator Bot (FIXED)</h1>
+            <h1><div class="status-indicator"></div>✈️ Aviator Bot (Modular)</h1>
             <div id="timestamp" style="font-size: 14px; opacity: 0.9;"></div>
         </div>
         <div class="stats-grid">
@@ -329,4 +414,33 @@
             });
     </script>
 </body>
-</html>
+</html>'''
+        
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+    
+    def start(self):
+        """Start dashboard server in background thread."""
+        if self.is_running:
+            return
+        
+        self.is_running = True
+        thread = threading.Thread(
+            target=lambda: self.socketio.run(
+                self.app, 
+                port=self.port, 
+                debug=False, 
+                use_reloader=False, 
+                log_output=False
+            ),
+            daemon=True
+        )
+        thread.start()
+        time.sleep(1.5)
+        
+        try:
+            webbrowser.open(f'http://localhost:{self.port}')
+        except:
+            pass
+        
+        print(f"✓ Dashboard running at http://localhost:{self.port}")

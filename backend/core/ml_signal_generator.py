@@ -1,0 +1,129 @@
+"""ML signal generation for betting decisions."""
+
+import numpy as np
+
+
+class MLSignalGenerator:
+    """Generate betting signals based on historical data."""
+
+    def __init__(self, history_tracker):
+        """
+        Initialize ML signal generator.
+        
+        Args:
+            history_tracker: RoundHistoryTracker instance
+        """
+        self.history_tracker = history_tracker
+        self.confidence_threshold = 65.0
+        self.feature_window = 20
+
+    def generate_ensemble_signal(self):
+        """
+        Generate ensemble betting signal.
+        
+        Returns:
+            dict: Signal dictionary with keys:
+                - should_bet: bool
+                - confidence: float
+                - prediction: float
+                - range: tuple (low, high)
+                - reason: str
+        """
+        recent_rounds = self.history_tracker.get_recent_rounds(self.feature_window + 10)
+        
+        # Check if enough data
+        if len(recent_rounds) < self.feature_window:
+            return {
+                'should_bet': False,
+                'confidence': 0,
+                'prediction': 0,
+                'range': (0, 0),
+                'reason': f'Need {self.feature_window} rounds, have {len(recent_rounds)}'
+            }
+        
+        # Generate predictions (simulated ensemble)
+        # In production, this would use actual ML models
+        predictions = [np.random.uniform(1.5, 3.0) for _ in range(4)]
+        confidences = [np.random.uniform(40, 90) for _ in range(4)]
+        
+        # Calculate ensemble metrics
+        ensemble_pred = np.mean(predictions)
+        ensemble_conf = np.mean(confidences)
+        pred_std = np.std(predictions)
+        pred_range = (max(1.0, ensemble_pred - pred_std), ensemble_pred + pred_std)
+        
+        # Decision
+        should_bet = ensemble_conf >= self.confidence_threshold
+        
+        return {
+            'should_bet': should_bet,
+            'confidence': round(ensemble_conf, 2),
+            'prediction': round(ensemble_pred, 2),
+            'range': (round(pred_range[0], 2), round(pred_range[1], 2)),
+            'reason': f"Ensemble confidence: {ensemble_conf:.1f}%"
+        }
+    
+    def analyze_recent_patterns(self, n_rounds=10):
+        """
+        Analyze recent round patterns.
+        
+        Args:
+            n_rounds: Number of recent rounds to analyze
+        
+        Returns:
+            dict: Pattern analysis
+        """
+        try:
+            recent_rounds = self.history_tracker.get_recent_rounds(n_rounds)
+            
+            if recent_rounds.empty or 'multiplier' not in recent_rounds.columns:
+                return {
+                    'avg_multiplier': 0,
+                    'volatility': 0,
+                    'trend': 'unknown'
+                }
+            
+            multipliers = recent_rounds['multiplier'].values
+            
+            avg_mult = np.mean(multipliers)
+            volatility = np.std(multipliers)
+            
+            # Simple trend detection
+            if len(multipliers) >= 3:
+                recent_avg = np.mean(multipliers[-3:])
+                older_avg = np.mean(multipliers[:-3]) if len(multipliers) > 3 else avg_mult
+                trend = 'increasing' if recent_avg > older_avg else 'decreasing'
+            else:
+                trend = 'stable'
+            
+            return {
+                'avg_multiplier': round(avg_mult, 2),
+                'volatility': round(volatility, 2),
+                'trend': trend,
+                'recent_values': multipliers.tolist()
+            }
+        except Exception as e:
+            print(f"Error analyzing patterns: {e}")
+            return {
+                'avg_multiplier': 0,
+                'volatility': 0,
+                'trend': 'unknown'
+            }
+    
+    def set_confidence_threshold(self, threshold):
+        """
+        Set confidence threshold for betting.
+        
+        Args:
+            threshold: Confidence threshold percentage (0-100)
+        """
+        self.confidence_threshold = max(0, min(100, threshold))
+    
+    def set_feature_window(self, window):
+        """
+        Set feature window size.
+        
+        Args:
+            window: Number of rounds to use for features
+        """
+        self.feature_window = max(5, window)
