@@ -115,17 +115,19 @@ class GameStateDetector:
     
     def is_game_already_running(self):
         """
-        Check if game is currently running.
+        Check if game is currently running (more aggressive detection).
         
         Returns:
             bool: True if game is running, False otherwise
         """
         state = self.read_text_in_region()
-        return state not in ['AWAITING', 'UNKNOWN', None]
+        # Only return False if we're CERTAIN it's awaiting
+        # If state is UNKNOWN or None, assume game might be running to be safe
+        return state != 'AWAITING'
     
     def wait_for_clean_awaiting_state(self, timeout=10):
         """
-        Wait for stable AWAITING state.
+        Wait for stable AWAITING state with multiple confirmations.
         
         Args:
             timeout: Maximum time to wait in seconds
@@ -137,10 +139,24 @@ class GameStateDetector:
         
         while time.time() - start < timeout:
             if self.is_awaiting_next_flight():
-                time.sleep(0.5)
-                # Double check
+                time.sleep(0.3)
+                # Triple check for stability
                 if self.is_awaiting_next_flight():
-                    return True
+                    time.sleep(0.2)
+                    if self.is_awaiting_next_flight():
+                        return True
             time.sleep(0.3)
         
         return False
+    
+    def has_game_crashed(self):
+        """
+        Check if game has crashed (transitioned to AWAITING or ENDED state).
+        More reliable than just checking is_awaiting_next_flight.
+        
+        Returns:
+            bool: True if game has crashed, False otherwise
+        """
+        state = self.read_text_in_region()
+        # Game has crashed if we see AWAITING or ENDED
+        return state in ['AWAITING', 'ENDED']

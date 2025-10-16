@@ -15,7 +15,7 @@ class AviatorDashboard:
     def __init__(self, bot, port=5000):
         """
         Initialize dashboard server.
-        
+
         Args:
             bot: AviatorBotML instance
             port: Port number for web server
@@ -26,6 +26,9 @@ class AviatorDashboard:
         self.socketio = SocketIO(self.app, cors_allowed_origins="*")
         self.is_running = False
         self.round_history = deque(maxlen=100)
+        self.highest_multipliers = []  # List to track top multipliers
+        self.low_reds = deque(maxlen=20)  # Track recent low multipliers
+        self.high_runs = deque(maxlen=50)  # Track high multiplier runs for graphing
         self._setup_routes()
         self._create_dashboard_template()
         
@@ -42,7 +45,9 @@ class AviatorDashboard:
                 'stats': self.bot.stats,
                 'current_stake': self.bot.current_stake,
                 'history': list(self.round_history),
-                'cumulative_profit': profit
+                'cumulative_profit': profit,
+                'highest_multipliers': self.highest_multipliers[:20],
+                'low_reds': list(self.low_reds)
             })
     
     def emit_round_update(self, round_data):
@@ -53,10 +58,44 @@ class AviatorDashboard:
             round_data: Dictionary containing round information
         """
         self.round_history.append(round_data)
+        
+        # Track highest multipliers
+        multiplier = round_data.get('multiplier', 0)
+        if multiplier > 0:
+            self._update_highest_multipliers(multiplier, round_data.get('timestamp'))
+            
+            # Track low reds (multipliers < 2.0)
+            if multiplier < 2.0:
+                self.low_reds.append({
+                    'multiplier': multiplier,
+                    'timestamp': round_data.get('timestamp')
+                })
+        
         try:
             self.socketio.emit('round_update', round_data)
+            # Emit updates for new sections
+            self.socketio.emit('highest_multipliers_update', {
+                'highest_multipliers': self.highest_multipliers[:20]
+            })
+            self.socketio.emit('low_reds_update', {
+                'low_reds': list(self.low_reds)
+            })
         except:
             pass
+    
+    def _update_highest_multipliers(self, multiplier, timestamp):
+        """
+        Update the highest multipliers list.
+        
+        Args:
+            multiplier: Multiplier value
+            timestamp: Timestamp of the round
+        """
+        entry = {'multiplier': multiplier, 'timestamp': timestamp}
+        self.highest_multipliers.append(entry)
+        # Sort by multiplier descending and keep top 20
+        self.highest_multipliers.sort(key=lambda x: x['multiplier'], reverse=True)
+        self.highest_multipliers = self.highest_multipliers[:20]
     
     def emit_stats_update(self):
         """Send stats update to dashboard."""
@@ -168,8 +207,12 @@ class AviatorDashboard:
             flex: 1;
             display: grid;
             grid-template-columns: 1.5fr 1fr;
+            grid-template-rows: 1fr 1fr;
             gap: 10px;
             overflow: hidden;
+        }
+        .panel.span-rows {
+            grid-row: span 2;
         }
         .panel {
             background: rgba(255,255,255,0.15);
@@ -218,35 +261,91 @@ class AviatorDashboard:
         .badge.skip { background: #6b7280; color: #fff; }
         .badge.win { background: #22c55e; color: #fff; }
         .badge.loss { background: #dc2626; color: #fff; }
-        .recent-rounds {
+        .leaderboard-item {
             display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin-bottom: 15px;
+            align-items: center;
+            padding: 8px 10px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            margin-bottom: 6px;
+            transition: all 0.2s;
         }
-        .round-bubble {
-            width: 42px;
-            height: 42px;
+        .leaderboard-item:hover {
+            background: rgba(255,255,255,0.1);
+            transform: translateX(4px);
+        }
+        .leaderboard-rank {
+            width: 30px;
+            height: 30px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 10px;
             font-weight: bold;
-            border: 2px solid rgba(255,255,255,0.4);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            font-size: 12px;
+            margin-right: 12px;
+            flex-shrink: 0;
         }
-        .round-bubble.crash { background: linear-gradient(135deg, #dc2626, #991b1b); }
-        .round-bubble.low { background: linear-gradient(135deg, #f59e0b, #d97706); }
-        .round-bubble.medium { background: linear-gradient(135deg, #10b981, #059669); }
-        .round-bubble.high { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
-        .round-bubble.mega { background: linear-gradient(135deg, #a855f7, #7c3aed); }
+        .leaderboard-rank.gold { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
+        .leaderboard-rank.silver { background: linear-gradient(135deg, #d1d5db, #9ca3af); }
+        .leaderboard-rank.bronze { background: linear-gradient(135deg, #f97316, #ea580c); }
+        .leaderboard-rank.default { background: rgba(255,255,255,0.2); }
+        .leaderboard-mult {
+            font-size: 18px;
+            font-weight: bold;
+            color: #10b981;
+            margin-right: auto;
+        }
+        .leaderboard-time {
+            font-size: 10px;
+            opacity: 0.7;
+        }
+        .low-red-item {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            border-radius: 20px;
+            margin: 4px;
+            font-size: 11px;
+            transition: all 0.2s;
+        }
+        .low-red-item:hover {
+            background: rgba(239, 68, 68, 0.3);
+            transform: scale(1.05);
+        }
+        .low-red-mult {
+            font-weight: bold;
+            color: #ef4444;
+            margin-right: 8px;
+        }
+        .low-red-time {
+            opacity: 0.7;
+            font-size: 10px;
+        }
+        .scrollable-content {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+        .low-reds-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: rgba(255,255,255,0.1); border-radius: 10px; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.5); }
         @media (max-width: 1200px) {
-            .main-content { grid-template-columns: 1fr; }
+            .main-content { 
+                grid-template-columns: 1fr;
+                grid-template-rows: auto;
+            }
+            .panel.span-rows {
+                grid-row: span 1;
+            }
             .stats-grid { grid-template-columns: repeat(3, 1fr); }
         }
     </style>
@@ -284,7 +383,7 @@ class AviatorDashboard:
             </div>
         </div>
         <div class="main-content">
-            <div class="panel">
+            <div class="panel span-rows">
                 <h2>📋 Round History</h2>
                 <div class="rounds-table-container">
                     <table class="rounds-table">
@@ -309,14 +408,21 @@ class AviatorDashboard:
                 </div>
             </div>
             <div class="panel">
-                <h2>🎲 Recent Multipliers</h2>
-                <div class="recent-rounds" id="recent-rounds"></div>
-                <h2>✅ Verification Status</h2>
-                <div style="background: rgba(255,255,255,0.05); border-radius: 8px; padding: 15px; font-size: 12px;">
-                    <div>✓ Bet placement verification</div>
-                    <div>✓ Stake verification</div>
-                    <div>✓ Game state validation</div>
-                    <div>✓ Cashout confirmation</div>
+                <h2>🏆 Highest Multipliers</h2>
+                <div class="scrollable-content" id="highest-multipliers-container">
+                    <div style="text-align: center; opacity: 0.5; padding: 20px; font-size: 12px;">
+                        ⏳ Waiting for data...
+                    </div>
+                </div>
+            </div>
+            <div class="panel">
+                <h2>🔴 Low Reds (< 2.0x)</h2>
+                <div class="scrollable-content">
+                    <div class="low-reds-container" id="low-reds-container">
+                        <div style="text-align: center; opacity: 0.5; padding: 20px; font-size: 12px; width: 100%;">
+                            ⏳ Waiting for data...
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -330,10 +436,15 @@ class AviatorDashboard:
         socket.on('round_update', (data) => {
             updateStats(data.stats, data.current_stake);
             addRoundToTable(data);
-            addRecentMultiplier(data.multiplier);
         });
         socket.on('stats_update', (data) => {
             updateStats(data.stats, data.current_stake);
+        });
+        socket.on('highest_multipliers_update', (data) => {
+            updateHighestMultipliers(data.highest_multipliers);
+        });
+        socket.on('low_reds_update', (data) => {
+            updateLowReds(data.low_reds);
         });
         function updateStats(stats, currentStake) {
             document.getElementById('rounds-played').textContent = stats.rounds_played;
@@ -389,19 +500,52 @@ class AviatorDashboard:
                 tbody.removeChild(tbody.lastChild);
             }
         }
-        function addRecentMultiplier(mult) {
-            const container = document.getElementById('recent-rounds');
-            const bubble = document.createElement('div');
-            const category = mult < 2 ? 'crash' : 
-                           mult < 5 ? 'low' : 
-                           mult < 10 ? 'medium' : 
-                           mult < 20 ? 'high' : 'mega';
-            bubble.className = 'round-bubble ' + category;
-            bubble.textContent = mult.toFixed(2) + 'x';
-            container.insertBefore(bubble, container.firstChild);
-            while (container.children.length > 24) {
-                container.removeChild(container.lastChild);
+        function updateHighestMultipliers(multipliers) {
+            const container = document.getElementById('highest-multipliers-container');
+            if (!multipliers || multipliers.length === 0) {
+                container.innerHTML = '<div style="text-align: center; opacity: 0.5; padding: 20px; font-size: 12px;">No data yet</div>';
+                return;
             }
+            container.innerHTML = '';
+            multipliers.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = 'leaderboard-item';
+                
+                const rankClass = index === 0 ? 'gold' : index === 1 ? 'silver' : index === 2 ? 'bronze' : 'default';
+                const time = new Date(item.timestamp).toLocaleTimeString('en-US', {
+                    hour12: false, hour: '2-digit', minute: '2-digit'
+                });
+                
+                div.innerHTML = `
+                    <div class="leaderboard-rank ${rankClass}">${index + 1}</div>
+                    <div class="leaderboard-mult">${item.multiplier.toFixed(2)}x</div>
+                    <div class="leaderboard-time">${time}</div>
+                `;
+                container.appendChild(div);
+            });
+        }
+        function updateLowReds(lowReds) {
+            const container = document.getElementById('low-reds-container');
+            if (!lowReds || lowReds.length === 0) {
+                container.innerHTML = '<div style="text-align: center; opacity: 0.5; padding: 20px; font-size: 12px; width: 100%;">No low reds yet</div>';
+                return;
+            }
+            container.innerHTML = '';
+            // Show most recent first
+            [...lowReds].reverse().forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'low-red-item';
+                
+                const time = new Date(item.timestamp).toLocaleTimeString('en-US', {
+                    hour12: false, hour: '2-digit', minute: '2-digit'
+                });
+                
+                div.innerHTML = `
+                    <span class="low-red-mult">${item.multiplier.toFixed(2)}x</span>
+                    <span class="low-red-time">${time}</span>
+                `;
+                container.appendChild(div);
+            });
         }
         fetch('/api/stats')
             .then(r => r.json())
@@ -409,8 +553,13 @@ class AviatorDashboard:
                 updateStats(data.stats, data.current_stake);
                 data.history.forEach(round => {
                     addRoundToTable(round);
-                    addRecentMultiplier(round.multiplier);
                 });
+                if (data.highest_multipliers) {
+                    updateHighestMultipliers(data.highest_multipliers);
+                }
+                if (data.low_reds) {
+                    updateLowReds(data.low_reds);
+                }
             });
     </script>
 </body>

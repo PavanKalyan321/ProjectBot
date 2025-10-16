@@ -5,7 +5,9 @@ import time
 import numpy as np
 import cv2
 import pyautogui
-
+import time
+import colorsys
+from statistics import median
 
 def verify_bet_placed(bet_button_coords, detector=None):
     """
@@ -61,6 +63,7 @@ def verify_bet_is_active(cashout_coords, detector):
         bool: True if bet is active, False otherwise
     """
     try:
+        print("  🔍 Verifying active bet...{detector}")
         # Check if in awaiting state
         if detector.is_awaiting_next_flight():
             return False
@@ -207,34 +210,146 @@ def place_bet_with_verification(bet_button_coords, detector, stats, current_stak
         return False, f"ERROR: {e}"
 
 
-def cashout_verified(cashout_coords, detector):
+# def cashout_verified(cashout_coords, detector):
+#     """
+#     Cashout with verification.
+    
+#     Args:
+#         cashout_coords: Tuple (x, y) of cashout button coordinates
+#         detector: GameStateDetector instance
+    
+#     Returns:
+#         Tuple (bool, str): (success, reason)
+#     """
+#     try:
+#         # if not verify_bet_is_active(cashout_coords, detector):
+#         #     print("  ⚠️ No active bet!")
+#         #     return False, "NO_ACTIVE_BET"
+        
+#         pyautogui.click(cashout_coords)
+#         time.sleep(0.1)
+#         # pyautogui.click(cashout_coords)
+#         # time.sleep(0.2)
+        
+#         # Verify cashout
+#         for _ in range(5):
+#             if detector.is_awaiting_next_flight():
+#                 return True, "SUCCESS"
+#             time.sleep(0.2)
+        
+#         return True, "SENT_PENDING"
+        
+#     except Exception as e:
+#         return False, f"ERROR: {e}"
+
+
+
+def cashout_verified(cashout_coords, detector,
+                     duration=4.0, interval=0.2,
+                     sample_radius=3, rgb_tol=65, hue_tol_deg=15, low_v_acceptance=0.5):
     """
-    Cashout with verification.
-    
+    Live color tracker + smart cashout verification.
+    Observes color changes in 0.2s intervals to deduce what happened.
+
     Args:
-        cashout_coords: Tuple (x, y) of cashout button coordinates
+        cashout_coords: (x, y) button center
         detector: GameStateDetector instance
-    
+        duration: how long (seconds) to track colors after clicking
+        interval: sampling gap between frames (seconds)
+        sample_radius: sampling radius around the coord
+        rgb_tol, hue_tol_deg, low_v_acceptance: color match tuning
+
     Returns:
-        Tuple (bool, str): (success, reason)
+        (bool, str): success flag, outcome reason
     """
     try:
-        if not verify_bet_is_active(cashout_coords, detector):
-            print("  ⚠️ No active bet!")
-            return False, "NO_ACTIVE_BET"
-        
-        pyautogui.click(cashout_coords)
-        time.sleep(0.1)
-        pyautogui.click(cashout_coords)
-        time.sleep(0.2)
-        
-        # Verify cashout
-        for _ in range(5):
-            if detector.is_awaiting_next_flight():
-                return True, "SUCCESS"
-            time.sleep(0.2)
-        
-        return True, "SENT_PENDING"
-        
+        x, y = int(cashout_coords[0]), int(cashout_coords[1])
+
+        TARGETS = {
+            "GREEN": (85, 170, 38),
+            "BLUE": (45, 107, 253),
+            "ORANGE": (242, 96, 44)
+        }
+
+        def rgb_distance(c1, c2):
+            return ((c1[0]-c2[0])**2 + (c1[1]-c2[1])**2 + (c1[2]-c2[2])**2) ** 0.5
+
+        def rgb_to_hsv_deg(rgb):
+            r, g, b = rgb
+            h, s, v = colorsys.rgb_to_hsv(r/255.0, g/255.0, b/255.0)
+            return h * 360.0, s, v
+
+        def hue_diff_deg(h1, h2):
+            diff = abs(h1 - h2) % 360
+            return min(diff, 360 - diff)
+
+        # --- Step 1: initial click if button is green ---
+        img = pyautogui.screenshot()
+        start_color = img.getpixel((x, y))
+        r, g, b = start_color
+        d_green = rgb_distance(start_color, TARGETS["GREEN"])
+
+        if d_green <= rgb_tol:
+            pyautogui.click(cashout_coords)
+            print("🟢 Cashout clicked (button was green).")
+        else:
+            print("⚠️ Cashout button not green at start, skipping click.")
+
+        # --- Step 2: observe color changes for a few seconds ---
+        observed = []
+        start_time = time.time()
+        while time.time() - start_time < duration:
+            img = pyautogui.screenshot()
+            pixels = []
+            for dx in range(-sample_radius, sample_radius + 1):
+                for dy in range(-sample_radius, sample_radius + 1):
+                    sx, sy = x + dx, y + dy
+                    if 0 <= sx < img.width and 0 <= sy < img.height:
+                        pixels.append(img.getpixel((sx, sy)))
+            if pixels:
+                r = int(median([p[0] for p in pixels]))
+                g = int(median([p[1] for p in pixels]))
+                b = int(median([p[2] for p in pixels]))
+                color = (r, g, b)
+            else:
+                color = img.getpixel((x, y))
+
+            color_h, _, color_v = rgb_to_hsv_deg(color)
+            best_match, best_dist = None, float('inf')
+
+            for name, ref in TARGETS.items():
+                ref_h, _, ref_v = rgb_to_hsv_deg(ref)
+                dist = rgb_distance(color, ref)
+                hue_diff = hue_diff_deg(color_h, ref_h)
+                if dist < best_dist or (hue_diff < hue_tol_deg and color_v < low_v_acceptance):
+                    best_match, best_dist = name, dist
+
+            observed.append(best_match)
+            time.sleep(interval)
+
+        # --- Step 3: interpret what happened based on observed sequence ---
+        if not observed:
+            return False, "NO_COLOR_DATA"
+
+        joined = "→".join([c for c in observed if c])
+        last = observed[-1]
+
+        if "GREEN" in observed and "BLUE" in observed:
+            return True, f"CASHOUT_SUCCESS (Green→Blue transition)"
+        elif "GREEN" in observed and "ORANGE" in observed:
+            return True, f"ROUND_ENDED_BET_AGAIN (Green→Orange)"
+        elif "BLUE" in observed and "ORANGE" in observed:
+            return False, f"ROUND_ENDED_BET_AVAILABLE (Blue→Orange)"
+        elif all(c == "GREEN" for c in observed if c):
+            return True, f"CASHOUT_HELD_GREEN (stable)"
+        elif all(c == "BLUE" for c in observed if c):
+            return False, f"ROUND_ENDED_NO_BET (Blue stable)"
+        elif all(c == "ORANGE" for c in observed if c):
+            return False, f"WAITING_NEXT_ROUND (Orange stable)"
+        elif detector.is_awaiting_next_flight():
+            return True, "DETECTED_NEXT_FLIGHT"
+        else:
+            return False, f"UNSURE|Sequence={joined}"
+
     except Exception as e:
         return False, f"ERROR: {e}"
