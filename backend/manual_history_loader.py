@@ -106,8 +106,8 @@ def extract_all_multipliers(text):
 
 class ManualHistoryLoader:
     """Load and manage manual history input for better ML predictions."""
-    
-    def __init__(self, csv_file="aviator_history.csv"):
+
+    def __init__(self, csv_file="aviator_rounds_history.csv"):
         self.csv_file = csv_file
         self.history = []
     
@@ -250,28 +250,39 @@ class ManualHistoryLoader:
             with open(self.csv_file, mode, newline='') as f:
                 writer = csv.writer(f)
                 
-                # Write header if new file
+                # Write header if new file (must match history_tracker.py schema!)
                 if not file_exists:
                     writer.writerow([
-                        'timestamp', 'multiplier', 'bet_placed', 'stake', 
-                        'cashout_time', 'profit_loss', 'prediction', 
-                        'confidence', 'range', 'source'
+                        'timestamp', 'round_id', 'multiplier',
+                        'bet_placed', 'stake_amount', 'cashout_time',
+                        'profit_loss', 'model_prediction', 'model_confidence',
+                        'model_predicted_range_low', 'model_predicted_range_high',
+                        'pos2_confidence', 'pos2_target_multiplier', 'pos2_burst_probability',
+                        'pos2_phase', 'pos2_rules_triggered'
                     ])
                 
-                # Write multipliers
-                timestamp = datetime.now().isoformat()
+                # Write multipliers (must match 16-column schema!)
                 for mult in multipliers:
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    round_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
+
                     writer.writerow([
                         timestamp,
+                        round_id,
                         mult,
                         False,  # bet_placed
-                        0,      # stake
+                        0,      # stake_amount
                         0,      # cashout_time
                         0,      # profit_loss
-                        0,      # prediction
-                        0,      # confidence
-                        'unknown',  # range
-                        'manual_input'  # source
+                        0,      # model_prediction
+                        0,      # model_confidence
+                        0,      # model_predicted_range_low
+                        0,      # model_predicted_range_high
+                        0,      # pos2_confidence
+                        0,      # pos2_target_multiplier
+                        0,      # pos2_burst_probability
+                        'manual',  # pos2_phase
+                        ''      # pos2_rules_triggered
                     ])
             
             print(f"\n✅ Saved {len(multipliers)} multipliers to {self.csv_file}")
@@ -383,7 +394,7 @@ def integrate_manual_history_with_bot(bot):
         print("⚠️  No history tracker available")
         return 0
     
-    loader = ManualHistoryLoader(csv_file="aviator_history.csv")
+    loader = ManualHistoryLoader(csv_file="aviator_rounds_history.csv")
     
     # Check if CSV exists and has data
     if os.path.exists(loader.csv_file):
@@ -647,28 +658,39 @@ if __name__ == "__main__":
             with open(self.csv_file, mode, newline='') as f:
                 writer = csv.writer(f)
                 
-                # Write header if new file
+                # Write header if new file (must match history_tracker.py schema!)
                 if not file_exists:
                     writer.writerow([
-                        'timestamp', 'multiplier', 'bet_placed', 'stake', 
-                        'cashout_time', 'profit_loss', 'prediction', 
-                        'confidence', 'range', 'source'
+                        'timestamp', 'round_id', 'multiplier',
+                        'bet_placed', 'stake_amount', 'cashout_time',
+                        'profit_loss', 'model_prediction', 'model_confidence',
+                        'model_predicted_range_low', 'model_predicted_range_high',
+                        'pos2_confidence', 'pos2_target_multiplier', 'pos2_burst_probability',
+                        'pos2_phase', 'pos2_rules_triggered'
                     ])
                 
-                # Write multipliers
-                timestamp = datetime.now().isoformat()
+                # Write multipliers (must match 16-column schema!)
                 for mult in multipliers:
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    round_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
+
                     writer.writerow([
                         timestamp,
+                        round_id,
                         mult,
                         False,  # bet_placed
-                        0,      # stake
+                        0,      # stake_amount
                         0,      # cashout_time
                         0,      # profit_loss
-                        0,      # prediction
-                        0,      # confidence
-                        'unknown',  # range
-                        'manual_input'  # source
+                        0,      # model_prediction
+                        0,      # model_confidence
+                        0,      # model_predicted_range_low
+                        0,      # model_predicted_range_high
+                        0,      # pos2_confidence
+                        0,      # pos2_target_multiplier
+                        0,      # pos2_burst_probability
+                        'manual',  # pos2_phase
+                        ''      # pos2_rules_triggered
                     ])
             
             print(f"\n✅ Saved {len(multipliers)} multipliers to {self.csv_file}")
@@ -779,7 +801,7 @@ def integrate_manual_history_with_bot(bot):
         print("⚠️  No history tracker available")
         return 0
     
-    loader = ManualHistoryLoader(csv_file="aviator_history.csv")
+    loader = ManualHistoryLoader(csv_file="aviator_rounds_history.csv")
     
     # Check if CSV exists and has data
     if os.path.exists(loader.csv_file):

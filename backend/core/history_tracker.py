@@ -1,4 +1,4 @@
-"""Round history tracking and CSV logging."""
+"""Round history tracking and CSV logging - Fixed duplicate logging."""
 
 import os
 import csv
@@ -87,13 +87,14 @@ class RoundHistoryTracker:
             if self._write_thread:
                 self._write_thread.join(timeout=2.0)
 
-    def auto_log_from_clipboard(self, detector, force=False):
+    def auto_log_from_clipboard(self, detector, force=False, log_to_history=True):
         """
-        Automatically log round from clipboard reading.
+        Automatically read/log round from clipboard.
         
         Args:
             detector: GameStateDetector instance
-            force: Force logging even if cooldown not expired
+            force: Force reading even if cooldown not expired
+            log_to_history: If True, log to CSV; if False, just return value
         
         Returns:
             Tuple (bool, float or None): (success, multiplier)
@@ -101,29 +102,41 @@ class RoundHistoryTracker:
         try:
             current_time = time.time()
             
-            # Check cooldown
+            # Check cooldown for reading
             if not force and (current_time - self.last_log_time) < self.log_cooldown:
                 return False, None
 
-            # Read multiplier
+            # Read multiplier from clipboard
             multiplier = detector.read_multiplier_from_clipboard()
             if multiplier is None:
                 return False, None
 
-            # Check if already logged
+            # Check if same as last read (duplicate prevention)
             if not force and multiplier == self.last_logged_multiplier:
                 return False, multiplier
 
-            # Log the round
-            self.log_round(multiplier=multiplier, bet_placed=False, stake=0,
-                          cashout_time=0, profit_loss=0)
+            # Only log if requested
+            if log_to_history:
+                # Log the round
+                self.log_round(
+                    multiplier=multiplier,
+                    bet_placed=False,
+                    stake_amount=0,
+                    cashout_time=0,
+                    profit_loss=0,
+                    model_prediction=0,
+                    model_confidence=0,
+                    model_predicted_range_low=0,
+                    model_predicted_range_high=0,
+                    pos2_signal=None
+                )
 
-            # Add to local buffer
-            self.local_history_buffer.append({
-                'multiplier': multiplier,
-                'timestamp': datetime.now().isoformat(),
-                'round_id': datetime.now().strftime("%Y%m%d%H%M%S%f")
-            })
+                # Add to local buffer
+                self.local_history_buffer.append({
+                    'multiplier': multiplier,
+                    'timestamp': datetime.now().isoformat(),
+                    'round_id': datetime.now().strftime("%Y%m%d%H%M%S%f")
+                })
 
             # Update tracking
             self.last_logged_multiplier = multiplier
@@ -135,8 +148,9 @@ class RoundHistoryTracker:
             print(f"Error auto-logging from clipboard: {e}")
             return False, None
 
-    def log_round(self, multiplier, bet_placed=False, stake=0, cashout_time=0,
-                  profit_loss=0, prediction=None, confidence=0, pred_range=(0, 0),
+    def log_round(self, multiplier, bet_placed=False, stake_amount=0, cashout_time=0,
+                  profit_loss=0, model_prediction=0, model_confidence=0,
+                  model_predicted_range_low=0, model_predicted_range_high=0,
                   pos2_signal=None):
         """
         Log a round to CSV file with async non-blocking writing.
@@ -144,12 +158,13 @@ class RoundHistoryTracker:
         Args:
             multiplier: Round multiplier value
             bet_placed: Whether a bet was placed
-            stake: Stake amount
+            stake_amount: Stake amount
             cashout_time: Time of cashout in seconds
             profit_loss: Profit or loss amount
-            prediction: ML model prediction
-            confidence: ML model confidence
-            pred_range: Tuple (low, high) prediction range
+            model_prediction: ML model prediction
+            model_confidence: ML model confidence
+            model_predicted_range_low: Lower prediction range
+            model_predicted_range_high: Upper prediction range
             pos2_signal: Position 2 signal dictionary (optional)
         """
         try:
@@ -171,10 +186,9 @@ class RoundHistoryTracker:
                 pos2_rules = '|'.join(pos2_signal.get('rules_triggered', []))
 
             row_data = [
-                timestamp, round_id, multiplier, bet_placed, stake, cashout_time,
-                profit_loss, prediction, confidence,
-                pred_range[0] if pred_range else 0,
-                pred_range[1] if pred_range else 0,
+                timestamp, round_id, multiplier, bet_placed, stake_amount, cashout_time,
+                profit_loss, model_prediction, model_confidence,
+                model_predicted_range_low, model_predicted_range_high,
                 pos2_confidence, pos2_target, pos2_burst_prob,
                 pos2_phase, pos2_rules
             ]
@@ -191,13 +205,13 @@ class RoundHistoryTracker:
                         'round_id': round_id,
                         'multiplier': multiplier,
                         'bet_placed': bet_placed,
-                        'stake_amount': stake,
+                        'stake_amount': stake_amount,
                         'cashout_time': cashout_time,
                         'profit_loss': profit_loss,
-                        'model_prediction': prediction,
-                        'model_confidence': confidence,
-                        'model_predicted_range_low': pred_range[0] if pred_range else 0,
-                        'model_predicted_range_high': pred_range[1] if pred_range else 0,
+                        'model_prediction': model_prediction,
+                        'model_confidence': model_confidence,
+                        'model_predicted_range_low': model_predicted_range_low,
+                        'model_predicted_range_high': model_predicted_range_high,
                         'pos2_confidence': pos2_confidence,
                         'pos2_target_multiplier': pos2_target,
                         'pos2_burst_probability': pos2_burst_prob,
@@ -372,3 +386,10 @@ class RoundHistoryTracker:
         except Exception as e:
             print(f"Error getting statistics: {e}")
             return {}
+
+    def __del__(self):
+        """Cleanup when object is destroyed."""
+        try:
+            self.stop_async_writer()
+        except:
+            pass

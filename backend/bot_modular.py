@@ -2,14 +2,6 @@
 Aviator Bot - Enhanced Logging & Model Insights
 """
 
-import sys
-import io
-
-# Fix Windows console encoding for emojis
-if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-
 import time
 from datetime import datetime
 import re
@@ -18,7 +10,7 @@ import re
 from config import ConfigManager
 
 # Import core modules
-from core import GameStateDetector, RoundHistoryTracker, MLSignalGenerator, Position2RuleEngine
+from core import GameStateDetector, RoundHistoryTracker, MLSignalGenerator
 
 # Import dashboard
 from dashboard import AviatorDashboard
@@ -33,6 +25,9 @@ from utils.betting_helpers import (
     reset_stake
 )
 
+def flush_print(text):
+    """Prints text immediately without buffering."""
+    print(text, flush=True)
 
 class AviatorBotML:
     """Main Aviator Bot with enhanced logging and model insights."""
@@ -53,7 +48,6 @@ class AviatorBotML:
         self.detector = None
         self.history_tracker = None
         self.ml_generator = None
-        self.position2_engine = None
         self.dashboard = None
         
         # Balance coordinates
@@ -78,14 +72,13 @@ class AviatorBotML:
         """Initialize all bot components after config is loaded."""
         if self.config_manager.multiplier_region:
             self.detector = GameStateDetector(self.config_manager.multiplier_region)
-
+        
         if self.config_manager.history_region:
             self.history_tracker = RoundHistoryTracker(self.config_manager.history_region)
-
+        
         if self.history_tracker:
             self.ml_generator = MLSignalGenerator(self.history_tracker)
-            self.position2_engine = Position2RuleEngine(self.history_tracker)
-
+        
         self.current_stake = self.config_manager.initial_stake
     
     def _reset_bet_state(self):
@@ -189,16 +182,30 @@ class AviatorBotML:
         
         return False
     
-    def _wait_for_crash_and_read_multiplier(self, timeout=60):
-        """Wait for round to crash and read the final multiplier."""
+    def _wait_for_crash_and_read_multiplier(self, timeout=60, log_to_history=False):
+        """
+        Wait for round to crash and read the final multiplier.
+
+        Args:
+            timeout: Maximum time to wait for crash
+            log_to_history: If True, log to CSV; if False, just read the value
+
+        Returns:
+            Tuple (success, multiplier)
+        """
         start_time = time.time()
-        
+
         while time.time() - start_time < timeout:
             if self.detector.has_game_crashed() or self.detector.is_awaiting_next_flight():
                 time.sleep(0.3)
-                
-                success, mult = self.history_tracker.auto_log_from_clipboard(self.detector, force=True)
-                
+
+                # Read multiplier WITHOUT logging to history (we'll log it properly later with all bet info)
+                success, mult = self.history_tracker.auto_log_from_clipboard(
+                    self.detector,
+                    force=True,
+                    log_to_history=log_to_history  # Control whether we log or just read
+                )
+
                 if success and mult:
                     self.last_logged_mult = mult
                     return True, mult
@@ -212,159 +219,72 @@ class AviatorBotML:
                             return True, mult
                         except:
                             pass
-                    
+
                     return False, None
-            
+
             time.sleep(0.3)
-        
+
         return False, None
     
-    def _show_position2_insights(self, pos2_signal):
-        """Display Position 2 rule engine insights."""
-        if not pos2_signal:
-            return
-
-        print("\n" + "="*85)
-        print("🎯 POSITION 2 - BURST CYCLE ANALYSIS")
-        print("="*85)
-
-        # Display insights
-        for insight in pos2_signal.get('insights', []):
-            print(f"  {insight}")
-
-        # Display rules triggered
-        rules = pos2_signal.get('rules_triggered', [])
-        if rules:
-            print(f"\n  🔔 Rules Triggered: {', '.join(rules)}")
-
-        # Display rule scores
-        scores = pos2_signal.get('rule_scores', {})
-        if scores:
-            print(f"\n  📊 Rule Scores:")
-            for rule, score in sorted(scores.items(), key=lambda x: x[1], reverse=True):
-                bar_len = int(score / 5)
-                bar = "█" * bar_len + "░" * (20 - bar_len)
-                print(f"     {rule:>3}: [{bar}] {score:.1f}%")
-
-        # Display burst probability
-        burst_prob = pos2_signal.get('burst_probability', 0)
-        if burst_prob > 0:
-            print(f"\n  💥 Burst Probability: {burst_prob*100:.0f}%")
-
-        print("="*85)
-
     def _show_model_predictions(self, signal):
-        """Display individual model predictions in clean table format."""
-        if not signal:
+        """Display individual model predictions in a compact format."""
+        if not signal or 'models' not in signal:
             return
 
-        # Get models from signal
-        models = signal.get('models', [])
-
-        if not models:
+        predictions = signal['models']
+        if not predictions:
             return
+        
+        print("\n  🤖 MODEL PREDICTIONS:")
+        print("  ┌──────────────────┬──────────┬────────────┐")
+        print("  │      MODEL       │   PRED   │ CONFIDENCE │")
+        print("  ├──────────────────┼──────────┼────────────┤")
 
-        print("\n🤖 ML MODEL ANALYSIS")
+        # Map model IDs to display names
+        model_display_names = {
+            'RandomForest': 'Random Forest   ',
+            'GradientBoosting': 'Gradient Boost  ',
+            'LightGBM': 'LightGBM        ',
+            'LSTM': 'LSTM            '
+        }
 
-        # Show recent history context
-        recent_rounds = self.history_tracker.get_recent_multipliers(10)
-        if recent_rounds:
-            print(f"📊 History: {', '.join([f'{m:.2f}x' for m in recent_rounds[-10:]])} | Avg: {sum(recent_rounds[-10:]) / len(recent_rounds[-10:]):.2f}x")
+        # Display each model's prediction
+        for pred in predictions:
+            model_id = pred.get('model_id', 'Unknown')
+            display_name = model_display_names.get(model_id, model_id.ljust(16))
+            pred_val = pred.get('prediction', 0)
+            conf = pred.get('confidence', 0)
 
-        # Pattern analysis
-        pattern = self.ml_generator.analyze_recent_patterns(10)
-        if pattern:
-            print(f"📉 Volatility: {pattern.get('volatility', 0):.2f} | Trend: {pattern.get('trend', 'unknown').upper()}")
+            print(f"  │ {display_name} │ {pred_val:6.2f}x │   {conf:5.1f}%   │")
 
-        print("")
-        print(f"{'MODEL':<15} {'PRED':>8} {'CONFIDENCE':>12} {'STATUS':>8}   {'REASONING':<28}")
-        print("-" * 85)
+        print("  ├──────────────────┼──────────┼────────────┤")
 
-        # Show each model's prediction
-        for model in models:
-            model_id = model.get('model_id', 'Unknown')
-            pred = model.get('prediction', 0)
-            conf = model.get('confidence', 0)
+        # Show ensemble prediction
+        ensemble_pred = signal.get('prediction', 0)
+        ensemble_conf = signal.get('confidence', 0)
+        print(f"  │ ENSEMBLE         │ {ensemble_pred:6.2f}x │   {ensemble_conf:5.1f}%   │")
+        print("  └──────────────────┴──────────┴────────────┘")
 
-            # Status based on confidence
-            if conf >= 80:
-                status = "HIGH"
-                icon = "🟢"
-            elif conf >= 65:
-                status = "MED"
-                icon = "🟡"
-            else:
-                status = "LOW"
-                icon = "🔴"
-
-            # Generate reasoning based on prediction
-            if pred >= 2.5:
-                reason = "High multiplier expected"
-            elif pred >= 2.0:
-                reason = "Moderate multiplier likely"
-            elif pred >= 1.5:
-                reason = "Safe range predicted"
-            else:
-                reason = "Low multiplier warning"
-
-            print(f"{model_id:<15} {pred:>6.2f}x {conf:>10.1f}% {icon} {status:>6}   {reason:<28}")
-
-        # Ensemble prediction
-        ens_pred = signal.get('prediction', 0)
-        ens_conf = signal.get('confidence', 0)
-        ens_range = signal.get('range', (0, 0))
-
-        if ens_conf >= 80:
-            ens_status = "HIGH"
-            ens_icon = "🟢"
-        elif ens_conf >= 65:
-            ens_status = "MED"
-            ens_icon = "🟡"
-        else:
-            ens_status = "LOW"
-            ens_icon = "🔴"
-
-        # Ensemble reasoning
-        if ens_conf >= self.ml_generator.confidence_threshold:
-            ens_reason = "Confidence threshold met"
-        else:
-            ens_reason = "Below confidence threshold"
-
-        print("-" * 85)
-        print(f"{'ENSEMBLE':<15} {ens_pred:>6.2f}x {ens_conf:>10.1f}% {ens_icon} {ens_status:>6}   {ens_reason:<28}")
-
-        # Additional context
-        if isinstance(ens_range, tuple) and len(ens_range) == 2:
-            print(f"\nRange: {ens_range[0]:.2f}x - {ens_range[1]:.2f}x | Target: {self.config_manager.cashout_delay}s (~{estimate_multiplier(self.config_manager.cashout_delay):.2f}x)")
-
-        # Decision explanation
-        if signal.get('should_bet'):
-            print(f"\n✅ BET: Confidence {ens_conf:.1f}% > Threshold {self.ml_generator.confidence_threshold}%")
-        else:
-            print(f"\n⏭️  SKIP: {signal.get('reason', 'Low confidence')}")
+        # Show additional metrics
+        if 'expected_value' in signal:
+            print(f"  Expected Value: {signal['expected_value']:.2f}")
+        if 'agreement' in signal:
+            agreement_status = "HIGH" if signal['agreement'] < 0.5 else "MEDIUM" if signal['agreement'] < 1.0 else "LOW"
+            print(f"  Model Agreement: {agreement_status} (σ={signal['agreement']:.2f})")
     
     def _show_cashout_progress(self, elapsed, target_time):
-        """Show cashout progress as scrollable lines (every 0.5s)."""
+        """Show enhanced cashout progress with visual indicator."""
         remaining = target_time - elapsed
-
+        
         if remaining <= 0:
             return
-
-        # Only print every 0.5 seconds to make it scrollable
-        if not hasattr(self, '_last_progress_print'):
-            self._last_progress_print = 0
-
-        if elapsed - self._last_progress_print < 0.5:
-            return
-
-        self._last_progress_print = elapsed
-
+        
         # Calculate progress
         progress_pct = (elapsed / target_time) * 100
-        bar_length = 30
+        bar_length = 40
         filled = int((progress_pct / 100) * bar_length)
         bar = '█' * filled + '░' * (bar_length - filled)
-
+        
         # Color and status based on remaining time
         if remaining > 2:
             color = '🟢'
@@ -378,81 +298,79 @@ class AviatorBotML:
         else:
             color = '🔴'
             status = 'NOW!'
-
+        
         # Estimated current multiplier
         current_mult = estimate_multiplier(elapsed)
-
-        print(f"  {color} [{bar}] {elapsed:.1f}s / {target_time:.1f}s | {status:5s} | ~{current_mult:.2f}x")
+        
+        print(f"  {color} [{bar}] {remaining:.2f}s | {status:5s} | ~{current_mult:.2f}x", end='\r', flush=True)
     
     def _log_round_header(self, round_num):
         """Print round header."""
-        print(f"\n{'='*85}")
-        print(f"ROUND #{round_num:03d}")
-        print(f"{'='*85}")
+        print(f"\n{'═'*100}")
+        print(f"🎯 ROUND #{round_num:03d}")
+        print(f"{'═'*100}")
     
     def _log_decision(self, action, signal, stake=0):
         """Log betting decision with details."""
-        self._show_model_predictions(signal)
-
-        # Show action summary
-        print("")
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
         if action == "BET":
-            print(f"💰 PLACING BET - Stake: {stake}")
+            print(f"\n  ✅ DECISION: PLACE BET")
+            print(f"  💰 Stake: {stake}")
+            print(f"  🎯 Target: {self.config_manager.cashout_delay}s (~{estimate_multiplier(self.config_manager.cashout_delay):.2f}x)")
+            print(f"  📊 Ensemble Confidence: {signal['confidence']:.1f}%")
+            self._show_model_predictions(signal)
         elif action == "SKIP":
-            print(f"⏭️  SKIPPING ROUND")
+            print(f"\n  ⏭️  DECISION: SKIP ROUND")
+            print(f"  ❌ Reason: {signal['reason']}")
+            print(f"  📊 Ensemble Confidence: {signal['confidence']:.1f}% (Threshold: {self.ml_generator.confidence_threshold}%)")
+            self._show_model_predictions(signal)
     
     def _log_round_result(self, round_num, action, stake, result, profit, mult, signal, balance, cumulative):
         """Log round result in a clean format."""
         timestamp = datetime.now().strftime("%H:%M:%S")
-
-        print("\n" + "-" * 85)
-        print("ROUND RESULT")
-        print("-" * 85)
-
+        
         # Result icon
         if result == "WIN":
             icon = "✅"
-            result_text = "WIN"
+            result_color = "SUCCESS"
         elif result == "CRASH":
             icon = "💥"
-            result_text = "CRASHED"
+            result_color = "CRASHED"
         elif result == "CANCEL":
             icon = "🚫"
-            result_text = "CANCELLED"
+            result_color = "CANCELLED"
         elif result == "NOSTART":
             icon = "⚠️"
-            result_text = "NO START"
+            result_color = "NO START"
         elif result == "SKIP":
             icon = "⏭️"
-            result_text = "SKIPPED"
+            result_color = "SKIPPED"
         else:
             icon = "❓"
-            result_text = result
-
-        # Build result line
-        result_parts = [f"{icon} {result_text}"]
-
+            result_color = result
+        
+        print(f"\n  {icon} RESULT: {result_color}")
+        
         if stake > 0:
-            result_parts.append(f"Stake: {stake:.0f}")
-
+            print(f"  💵 Stake: {stake:.0f}")
+        
         if mult > 0:
-            result_parts.append(f"Multiplier: {mult:.2f}x")
-
+            print(f"  🎰 Multiplier: {mult:.2f}x")
+        
         if profit != 0:
             profit_sign = "+" if profit > 0 else ""
-            result_parts.append(f"P/L: {profit_sign}{profit:.2f}")
-
+            print(f"  💰 P/L: {profit_sign}{profit:.2f}")
+        
         if balance:
-            result_parts.append(f"Balance: {balance:.2f}")
-
-        result_parts.append(f"Total P/L: {cumulative:+.2f}")
-
+            print(f"  💳 Balance: {balance:.2f}")
+        
+        print(f"  📊 Cumulative P/L: {cumulative:+.2f}")
+        
         if result == "WIN":
-            result_parts.append(f"Streak: {self.stats['current_streak']}")
-
-        # Print all in one line
-        print(" | ".join(result_parts))
-        print("-" * 85)
+            print(f"  🔥 Win Streak: {self.stats['current_streak']}")
+        
+        print(f"{'─'*100}")
     
     def _create_round_data(self, multiplier, bet_placed, stake, cashout_time, 
                           profit_loss, signal, cumulative_profit, balance=None):
@@ -497,27 +415,27 @@ class AviatorBotML:
                 self._log_round_header(round_number)
                 
                 # STEP 1: Wait for clean AWAITING state
-                print("  ⏳ Waiting for AWAITING state...")
+                flush_print("  ⏳ Waiting for AWAITING state...")
                 if not self.detector.wait_for_clean_awaiting_state(timeout=60):
-                    print("  ⚠️  Timeout - retrying...")
+                    flush_print("  ⚠️  Timeout - retrying...")
                     continue
                 
-                print("  ✅ AWAITING confirmed")
+                flush_print("  ✅ AWAITING confirmed")
                 time.sleep(0.3)
                 
                 # STEP 2: Check for existing bet
                 if self._check_existing_bet():
-                    print("  🚫 Orphaned bet detected!")
+                    flush_print("  🚫 Orphaned bet detected!")
                     self.stats["cancelled_bets"] += 1
                     self.stats["failed_cashouts"] += 1
                     
                     loss = -self.current_stake
                     cumulative_profit += loss
                     
-                    self._log_round_result(round_number, "BET", self.current_stake, "CANCEL",
+                    self._log_round_result(round_number, "BET", self.current_stake, "CANCEL", 
                                           loss, 0, None, self.last_balance, cumulative_profit)
-
-                    self.history_tracker.log_round(0, True, self.current_stake, 0, loss, 0, 0, 'orphaned', pos2_signal=None)
+                    
+                    self.history_tracker.log_round(0, True, self.current_stake, 0, loss, 0, 0, 'orphaned')
                     round_data = self._create_round_data(0, True, self.current_stake, 0, loss, 
                                                          None, cumulative_profit, self.last_balance)
                     self._emit_dashboard_update(round_data)
@@ -527,30 +445,31 @@ class AviatorBotML:
                     history_read_for_round = False
                     continue
                 
-                # STEP 3: Read previous round multiplier
+                # STEP 3: Read previous round multiplier ONLY ONCE per actual round
                 if not history_read_for_round:
-                    print("  📝 Reading previous round...")
-                    success, logged_mult = self.history_tracker.auto_log_from_clipboard(self.detector, force=False)
+                    flush_print("  📝 Checking for previous round...")
                     
-                    if success and logged_mult:
+                    # Only try to read if we just entered AWAITING (new round started)
+                    # Don't create a new round entry, just read the last game's multiplier
+                    success, logged_mult = self.history_tracker.auto_log_from_clipboard(
+                        self.detector, 
+                        force=False,
+                        log_to_history=False  # CRITICAL: Don't add to history yet!
+                    )
+                    
+                    if success and logged_mult and logged_mult != self.last_logged_mult:
                         self.last_logged_mult = logged_mult
-                        print(f"  ✅ Previous round: {logged_mult:.2f}x")
+                        flush_print(f"  ✅ Previous round: {logged_mult:.2f}x")
                     else:
-                        print("  ℹ️  No previous round data")
+                        flush_print("  ℹ️  No new round data")
                     
                     history_read_for_round = True
                 
                 time.sleep(0.2)
-
-                # STEP 4: Generate ML signal for Position 1
+                
+                # STEP 4: Generate ML signal
                 print("\n  🤖 Analyzing patterns...")
                 signal = self.ml_generator.generate_ensemble_signal()
-
-                # STEP 4.5: Generate Position 2 signal (for higher multiplier opportunities)
-                pos2_signal = None
-                if self.position2_engine:
-                    pos2_signal = self.position2_engine.analyze_position2_signal()
-                    self._show_position2_insights(pos2_signal)
                 
                 if signal['should_bet']:
                     # BETTING ROUND
@@ -615,12 +534,20 @@ class AviatorBotML:
                         loss = -stake_used
                         cumulative_profit += loss
                         
-                        self._log_round_result(round_number, "BET", stake_used, "NOSTART",
+                        self._log_round_result(round_number, "BET", stake_used, "NOSTART", 
                                               loss, 0, signal, self.last_balance, cumulative_profit)
-
-                        self.history_tracker.log_round(0, True, stake_used, 0, loss,
-                                                      signal['prediction'], signal['confidence'], 'no_start',
-                                                      pos2_signal=pos2_signal)
+                        
+                        self.history_tracker.log_round(
+                            multiplier=0,
+                            bet_placed=True,
+                            stake_amount=stake_used,
+                            cashout_time=0,
+                            profit_loss=loss,
+                            model_prediction=signal['prediction'],
+                            model_confidence=signal['confidence'],
+                            model_predicted_range_low=0,
+                            model_predicted_range_high=0
+                        )
                         
                         round_data = self._create_round_data(0, True, stake_used, 0, loss, 
                                                              signal, cumulative_profit, self.last_balance)
@@ -663,15 +590,23 @@ class AviatorBotML:
                                 loss = -stake_used
                                 cumulative_profit += loss
                                 
-                                success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5)
+                                success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5, log_to_history=False)
                                 final_mult = crash_mult if success else 0
                                 
-                                self._log_round_result(round_number, "BET", stake_used, "CRASH",
+                                self._log_round_result(round_number, "BET", stake_used, "CRASH", 
                                                       loss, final_mult, signal, self.last_balance, cumulative_profit)
-
-                                self.history_tracker.log_round(final_mult, True, stake_used, elapsed, loss,
-                                                              signal['prediction'], signal['confidence'], signal['range'],
-                                                              pos2_signal=pos2_signal)
+                                
+                                self.history_tracker.log_round(
+                                    multiplier=final_mult,
+                                    bet_placed=True,
+                                    stake_amount=stake_used,
+                                    cashout_time=elapsed,
+                                    profit_loss=loss,
+                                    model_prediction=signal['prediction'],
+                                    model_confidence=signal['confidence'],
+                                    model_predicted_range_low=0,
+                                    model_predicted_range_high=0
+                                )
                                 
                                 round_data = self._create_round_data(final_mult, True, stake_used, elapsed, loss, 
                                                                      signal, cumulative_profit, self.last_balance)
@@ -704,15 +639,14 @@ class AviatorBotML:
                                 loss = -stake_used
                                 cumulative_profit += loss
                                 
-                                success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5)
+                                success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5, log_to_history=False)
                                 final_mult = crash_mult if success else 0
                                 
-                                self._log_round_result(round_number, "BET", stake_used, "CRASH",
+                                self._log_round_result(round_number, "BET", stake_used, "CRASH", 
                                                       loss, final_mult, signal, self.last_balance, cumulative_profit)
-
+                                
                                 self.history_tracker.log_round(final_mult, True, stake_used, actual_elapsed, loss,
-                                                              signal['prediction'], signal['confidence'], signal['range'],
-                                                              pos2_signal=pos2_signal)
+                                                              signal['prediction'], signal['confidence'], signal['range'])
                                 
                                 round_data = self._create_round_data(final_mult, True, stake_used, actual_elapsed, loss, 
                                                                      signal, cumulative_profit, self.last_balance)
@@ -745,13 +679,20 @@ class AviatorBotML:
                                 cumulative_profit += profit
                                 self.stats["total_return"] += returns
                                 
-                                self._log_round_result(round_number, "BET", stake_used, "WIN",
+                                self._log_round_result(round_number, "BET", stake_used, "WIN", 
                                                       profit, final_mult, signal, new_balance, cumulative_profit)
-
-                                self.history_tracker.log_round(final_mult, True, stake_used,
-                                                              self.config_manager.cashout_delay, profit,
-                                                              signal['prediction'], signal['confidence'], signal['range'],
-                                                              pos2_signal=pos2_signal)
+                                
+                                self.history_tracker.log_round(
+                                    multiplier=final_mult,
+                                    bet_placed=True,
+                                    stake_amount=stake_used,
+                                    cashout_time=self.config_manager.cashout_delay,
+                                    profit_loss=profit,
+                                    model_prediction=signal['prediction'],
+                                    model_confidence=signal['confidence'],
+                                    model_predicted_range_low=0,
+                                    model_predicted_range_high=0
+                                )
                                 
                                 round_data = self._create_round_data(final_mult, True, stake_used, 
                                                                      self.config_manager.cashout_delay, profit, 
@@ -777,15 +718,23 @@ class AviatorBotML:
                                     loss = -stake_used
                                     cumulative_profit += loss
                                     
-                                    success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5)
+                                    success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5, log_to_history=False)
                                     final_mult = crash_mult if success else 0
                                     
-                                    self._log_round_result(round_number, "BET", stake_used, "CRASH",
+                                    self._log_round_result(round_number, "BET", stake_used, "CRASH", 
                                                           loss, final_mult, signal, self.last_balance, cumulative_profit)
-
-                                    self.history_tracker.log_round(final_mult, True, stake_used, actual_elapsed, loss,
-                                                                  signal['prediction'], signal['confidence'], signal['range'],
-                                                                  pos2_signal=pos2_signal)
+                                    
+                                    self.history_tracker.log_round(
+                                        multiplier=final_mult,
+                                        bet_placed=True,
+                                        stake_amount=stake_used,
+                                        cashout_time=actual_elapsed,
+                                        profit_loss=loss,
+                                        model_prediction=signal['prediction'],
+                                        model_confidence=signal['confidence'],
+                                        model_predicted_range_low=0,
+                                        model_predicted_range_high=0
+                                    )
                                     
                                     round_data = self._create_round_data(final_mult, True, stake_used, actual_elapsed, loss, 
                                                                          signal, cumulative_profit, self.last_balance)
@@ -817,19 +766,27 @@ class AviatorBotML:
                     self._reset_bet_state()
                     
                     print("\n  ⏳ Waiting for round to complete...")
-                    success, observed_mult = self._wait_for_crash_and_read_multiplier(timeout=60)
+                    success, observed_mult = self._wait_for_crash_and_read_multiplier(timeout=60, log_to_history=False)
                     
                     if not success:
                         observed_mult = 2.0
                     
                     print(f"  📊 Observed: {observed_mult:.2f}x")
                     
-                    self._log_round_result(round_number, "SKIP", 0, "SKIP",
+                    self._log_round_result(round_number, "SKIP", 0, "SKIP", 
                                           0, observed_mult, signal, self.last_balance, cumulative_profit)
-
-                    self.history_tracker.log_round(observed_mult, False, 0, 0, 0,
-                                                  signal['prediction'], signal['confidence'], signal['range'],
-                                                  pos2_signal=pos2_signal)
+                    
+                    self.history_tracker.log_round(
+                        multiplier=observed_mult,
+                        bet_placed=False,
+                        stake_amount=0,
+                        cashout_time=0,
+                        profit_loss=0,
+                        model_prediction=signal['prediction'],
+                        model_confidence=signal['confidence'],
+                        model_predicted_range_low=0,
+                        model_predicted_range_high=0
+                    )
                     
                     round_data = self._create_round_data(observed_mult, False, 0, 0, 0, 
                                                          signal, cumulative_profit, self.last_balance)
@@ -964,15 +921,15 @@ def main():
     print("="*100)
     
     # Start dashboard (optional)
-    # start_dash = input("\nStart web dashboard? (y/n, default: n): ").strip().lower()
-    # if start_dash == 'y':
-        # print("\n🌐 Starting dashboard...")
-        # bot.dashboard = AviatorDashboard(bot, port=5000)
-        # bot.dashboard.start()
-        # print("✅ Dashboard: http://localhost:5000")
+    start_dash = input("\nStart web dashboard? (y/n, default: n): ").strip().lower()
+    if start_dash == 'y':
+        print("\n🌐 Starting dashboard...")
+        bot.dashboard = AviatorDashboard(bot, port=5000)
+        bot.dashboard.start()
+        print("✅ Dashboard: http://localhost:5000")
     
-    # print("\nPress Enter to start...")
-    # input()
+    print("\nPress Enter to start...")
+    input()
     
     # Save config and run
     bot.config_manager.save_config()
