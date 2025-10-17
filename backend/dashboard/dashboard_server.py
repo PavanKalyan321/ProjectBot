@@ -4,6 +4,7 @@ import os
 import time
 import threading
 import webbrowser
+import heapq
 from collections import deque
 from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO
@@ -26,7 +27,9 @@ class AviatorDashboard:
         self.socketio = SocketIO(self.app, cors_allowed_origins="*")
         self.is_running = False
         self.round_history = deque(maxlen=100)
-        self.highest_multipliers = []  # List to track top multipliers
+        # Performance optimization: Use min-heap for efficient top-K tracking
+        self._multipliers_heap = []  # Min-heap for top 20 multipliers
+        self._heap_size_limit = 20
         self.low_reds = deque(maxlen=20)  # Track recent low multipliers
         self.high_runs = deque(maxlen=50)  # Track high multiplier runs for graphing
         self._setup_routes()
@@ -37,7 +40,11 @@ class AviatorDashboard:
         @self.app.route('/')
         def index():
             return render_template('dashboard.html')
-        
+
+        @self.app.route('/logs')
+        def logs():
+            return render_template('logs.html')
+
         @self.app.route('/api/stats')
         def get_stats():
             profit = self.bot.stats['total_return'] - self.bot.stats['total_bet']
@@ -46,9 +53,36 @@ class AviatorDashboard:
                 'current_stake': self.bot.current_stake,
                 'history': list(self.round_history),
                 'cumulative_profit': profit,
-                'highest_multipliers': self.highest_multipliers[:20],
+                'highest_multipliers': self._get_top_multipliers(),
                 'low_reds': list(self.low_reds)
             })
+
+        @self.app.route('/api/logs')
+        def get_logs():
+            """Get all historical logs from CSV."""
+            try:
+                rounds = self.bot.history_tracker.get_recent_rounds(500)  # Last 500 rounds
+                if rounds.empty:
+                    return jsonify({'logs': []})
+
+                logs = []
+                for _, row in rounds.iterrows():
+                    logs.append({
+                        'timestamp': row.get('timestamp', ''),
+                        'round_id': row.get('round_id', ''),
+                        'multiplier': float(row.get('multiplier', 0)),
+                        'bet_placed': bool(row.get('bet_placed', False)),
+                        'stake': float(row.get('stake_amount', 0)),
+                        'cashout_time': float(row.get('cashout_time', 0)),
+                        'profit_loss': float(row.get('profit_loss', 0)),
+                        'prediction': row.get('model_prediction'),
+                        'confidence': float(row.get('model_confidence', 0)),
+                    })
+
+                return jsonify({'logs': logs})
+            except Exception as e:
+                print(f"Error getting logs: {e}")
+                return jsonify({'logs': []})
     
     def emit_round_update(self, round_data):
         """
@@ -75,27 +109,45 @@ class AviatorDashboard:
             self.socketio.emit('round_update', round_data)
             # Emit updates for new sections
             self.socketio.emit('highest_multipliers_update', {
-                'highest_multipliers': self.highest_multipliers[:20]
+                'highest_multipliers': self._get_top_multipliers()
             })
             self.socketio.emit('low_reds_update', {
                 'low_reds': list(self.low_reds)
             })
         except:
             pass
-    
+
     def _update_highest_multipliers(self, multiplier, timestamp):
         """
-        Update the highest multipliers list.
-        
+        Update the highest multipliers using min-heap (O(log n) instead of O(n log n)).
+
         Args:
             multiplier: Multiplier value
             timestamp: Timestamp of the round
         """
-        entry = {'multiplier': multiplier, 'timestamp': timestamp}
-        self.highest_multipliers.append(entry)
-        # Sort by multiplier descending and keep top 20
-        self.highest_multipliers.sort(key=lambda x: x['multiplier'], reverse=True)
-        self.highest_multipliers = self.highest_multipliers[:20]
+        entry = (multiplier, timestamp)
+
+        if len(self._multipliers_heap) < self._heap_size_limit:
+            # Heap not full yet, just add
+            heapq.heappush(self._multipliers_heap, entry)
+        elif multiplier > self._multipliers_heap[0][0]:
+            # New multiplier is larger than smallest in heap, replace it
+            heapq.heapreplace(self._multipliers_heap, entry)
+        # Otherwise, multiplier is too small to be in top 20, ignore it
+
+    def _get_top_multipliers(self):
+        """
+        Get top multipliers sorted in descending order.
+
+        Returns:
+            list: Top multipliers as dictionaries
+        """
+        # Sort heap in descending order and format as dictionaries
+        sorted_mults = sorted(self._multipliers_heap, reverse=True)
+        return [
+            {'multiplier': mult, 'timestamp': ts}
+            for mult, ts in sorted_mults
+        ]
     
     def emit_stats_update(self):
         """Send stats update to dashboard."""
@@ -110,15 +162,19 @@ class AviatorDashboard:
             pass
     
     def _create_dashboard_template(self):
-        """Create dashboard HTML file."""
+        """Create dashboard HTML files."""
         os.makedirs('templates', exist_ok=True)
-        
+
         # Read the existing template
         template_path = os.path.join(os.path.dirname(__file__), 'templates', 'dashboard.html')
-        
+        logs_path = os.path.join(os.path.dirname(__file__), 'templates', 'logs.html')
+
         # If template doesn't exist in dashboard folder, create it
         if not os.path.exists(template_path):
             self._generate_dashboard_html(template_path)
+
+        # Always create/update logs template
+        self._generate_logs_html(logs_path)
     
     def _generate_dashboard_html(self, path):
         """Generate dashboard HTML content."""
@@ -567,7 +623,375 @@ class AviatorDashboard:
         
         with open(path, 'w', encoding='utf-8') as f:
             f.write(html_content)
-    
+
+    def _generate_logs_html(self, path):
+        """Generate logs page HTML content with auto-scroll."""
+        html_content = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aviator Bot - All Logs</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
+            color: #fff;
+            padding: 10px;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .container {
+            max-width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .header {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            padding: 15px 20px;
+            border-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .nav-link {
+            background: rgba(255,255,255,0.2);
+            padding: 8px 16px;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        .nav-link:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+        }
+        .controls {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            padding: 12px 20px;
+            border-radius: 12px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .toggle {
+            position: relative;
+            width: 50px;
+            height: 26px;
+        }
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255,255,255,0.3);
+            transition: .4s;
+            border-radius: 26px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #10b981;
+        }
+        input:checked + .slider:before {
+            transform: translateX(24px);
+        }
+        .logs-panel {
+            flex: 1;
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 15px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .logs-header {
+            font-size: 16px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid rgba(255,255,255,0.3);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .log-count {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+        .logs-container {
+            flex: 1;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+        .logs-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .logs-table th {
+            background: rgba(255,255,255,0.2);
+            padding: 10px 8px;
+            text-align: left;
+            font-size: 11px;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .logs-table td {
+            padding: 10px 8px;
+            font-size: 11px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .logs-table tr:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .logs-table tr.new-log {
+            animation: highlight 1s ease;
+        }
+        @keyframes highlight {
+            0% { background: rgba(16,185,129,0.3); }
+            100% { background: transparent; }
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        .badge.success { background: #10b981; color: #fff; }
+        .badge.skip { background: #6b7280; color: #fff; }
+        .badge.win { background: #22c55e; color: #fff; }
+        .badge.loss { background: #dc2626; color: #fff; }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            opacity: 0.7;
+            font-size: 14px;
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.5); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📜 Aviator Bot - All Logs</h1>
+            <div style="display: flex; gap: 15px; align-items: center;">
+                <a href="/" class="nav-link">← Back to Dashboard</a>
+                <div id="timestamp" style="font-size: 14px; opacity: 0.9;"></div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="toggle-container">
+                <label style="font-size: 13px; font-weight: 500;">Auto-Scroll</label>
+                <label class="toggle">
+                    <input type="checkbox" id="auto-scroll" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div style="font-size: 12px; opacity: 0.8;">
+                New logs will appear at the bottom automatically
+            </div>
+        </div>
+
+        <div class="logs-panel">
+            <div class="logs-header">
+                <span>Complete Round History</span>
+                <span class="log-count" id="log-count">Loading...</span>
+            </div>
+            <div class="logs-container" id="logs-container">
+                <table class="logs-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Action</th>
+                            <th>Multiplier</th>
+                            <th>Stake</th>
+                            <th>Cashout</th>
+                            <th>Result</th>
+                            <th>P/L</th>
+                            <th>ML Prediction</th>
+                            <th>Confidence</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logs-tbody">
+                        <tr>
+                            <td colspan="9" class="loading">
+                                Loading logs...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let autoScroll = true;
+        let logsLoaded = false;
+
+        // Update timestamp
+        setInterval(() => {
+            document.getElementById('timestamp').textContent =
+                new Date().toLocaleTimeString('en-US', {hour12: false});
+        }, 1000);
+
+        // Auto-scroll toggle
+        document.getElementById('auto-scroll').addEventListener('change', (e) => {
+            autoScroll = e.target.checked;
+        });
+
+        // Scroll to bottom function
+        function scrollToBottom() {
+            if (autoScroll) {
+                const container = document.getElementById('logs-container');
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        // Add log to table
+        function addLogToTable(log, animate = false) {
+            const tbody = document.getElementById('logs-tbody');
+
+            if (!logsLoaded) {
+                tbody.innerHTML = '';
+                logsLoaded = true;
+            }
+
+            const row = document.createElement('tr');
+            if (animate) {
+                row.className = 'new-log';
+            }
+
+            const actionBadge = log.bet_placed
+                ? '<span class="badge success">BET</span>'
+                : '<span class="badge skip">SKIP</span>';
+
+            const resultBadge = log.bet_placed
+                ? (log.profit_loss > 0
+                    ? '<span class="badge win">WIN</span>'
+                    : '<span class="badge loss">LOSS</span>')
+                : '-';
+
+            const multColor = log.multiplier < 2 ? '#ef4444' :
+                             log.multiplier < 5 ? '#fbbf24' :
+                             log.multiplier < 10 ? '#10b981' : '#3b82f6';
+
+            const prediction = log.prediction !== null && log.prediction !== 'None'
+                ? parseFloat(log.prediction).toFixed(2) + 'x'
+                : '-';
+
+            row.innerHTML = `
+                <td>${log.timestamp}</td>
+                <td>${actionBadge}</td>
+                <td style="color: ${multColor}; font-weight: bold;">${log.multiplier.toFixed(2)}x</td>
+                <td>${log.stake > 0 ? log.stake : '-'}</td>
+                <td>${log.cashout_time > 0 ? log.cashout_time.toFixed(1) + 's' : '-'}</td>
+                <td>${resultBadge}</td>
+                <td style="color: ${log.profit_loss > 0 ? '#10b981' : log.profit_loss < 0 ? '#ef4444' : '#fff'}; font-weight: bold;">
+                    ${log.profit_loss !== 0 ? (log.profit_loss > 0 ? '+' : '') + log.profit_loss.toFixed(2) : '-'}
+                </td>
+                <td style="opacity: 0.8;">${prediction}</td>
+                <td style="opacity: 0.8;">${log.confidence > 0 ? (log.confidence * 100).toFixed(0) + '%' : '-'}</td>
+            `;
+
+            tbody.appendChild(row);
+
+            // Update count
+            updateLogCount();
+
+            // Auto-scroll if enabled
+            requestAnimationFrame(scrollToBottom);
+        }
+
+        // Update log count
+        function updateLogCount() {
+            const tbody = document.getElementById('logs-tbody');
+            const count = tbody.children.length;
+            document.getElementById('log-count').textContent = `${count} rounds`;
+        }
+
+        // Load initial logs
+        fetch('/api/logs')
+            .then(r => r.json())
+            .then(data => {
+                if (data.logs && data.logs.length > 0) {
+                    data.logs.forEach(log => addLogToTable(log, false));
+                } else {
+                    const tbody = document.getElementById('logs-tbody');
+                    tbody.innerHTML = '<tr><td colspan="9" class="loading">No logs available yet</td></tr>';
+                }
+            })
+            .catch(err => {
+                console.error('Error loading logs:', err);
+                const tbody = document.getElementById('logs-tbody');
+                tbody.innerHTML = '<tr><td colspan="9" class="loading">Error loading logs</td></tr>';
+            });
+
+        // Listen for new rounds from socket
+        socket.on('round_update', (data) => {
+            addLogToTable({
+                timestamp: data.timestamp,
+                bet_placed: data.bet_placed || false,
+                multiplier: data.multiplier,
+                stake: data.stake || 0,
+                cashout_time: data.cashout_time || 0,
+                profit_loss: data.profit_loss || 0,
+                prediction: data.prediction,
+                confidence: data.confidence || 0
+            }, true);
+        });
+    </script>
+</body>
+</html>'''
+
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
     def start(self):
         """Start dashboard server in background thread."""
         if self.is_running:

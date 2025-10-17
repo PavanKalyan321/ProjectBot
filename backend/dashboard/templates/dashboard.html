@@ -38,6 +38,21 @@
             align-items: center;
             gap: 10px;
         }
+        .nav-link {
+            background: rgba(255,255,255,0.2);
+            padding: 8px 16px;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        .nav-link:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+        }
         .status-indicator {
             width: 12px;
             height: 12px;
@@ -170,7 +185,10 @@
     <div class="container">
         <div class="header">
             <h1><div class="status-indicator"></div>✈️ Aviator Bot (FIXED)</h1>
-            <div id="timestamp" style="font-size: 14px; opacity: 0.9;"></div>
+            <div style="display: flex; gap: 15px; align-items: center;">
+                <a href="/logs" class="nav-link">📜 View All Logs</a>
+                <div id="timestamp" style="font-size: 14px; opacity: 0.9;"></div>
+            </div>
         </div>
         <div class="stats-grid">
             <div class="stat-card">
@@ -269,54 +287,114 @@
                 : 0;
             document.getElementById('roi').textContent = roi + '%';
         }
+        // Performance optimization: Batch DOM updates
+        let pendingTableUpdates = [];
+        let tableUpdateScheduled = false;
+
         function addRoundToTable(data) {
+            pendingTableUpdates.push(data);
+
+            if (!tableUpdateScheduled) {
+                tableUpdateScheduled = true;
+                requestAnimationFrame(flushTableUpdates);
+            }
+        }
+
+        function flushTableUpdates() {
+            if (pendingTableUpdates.length === 0) {
+                tableUpdateScheduled = false;
+                return;
+            }
+
             const tbody = document.getElementById('rounds-tbody');
             if (tbody.children[0]?.children[0]?.colSpan === 6) {
                 tbody.innerHTML = '';
             }
-            const row = document.createElement('tr');
-            const time = new Date(data.timestamp).toLocaleTimeString('en-US', {
-                hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'
+
+            // Create document fragment for batch insert (FAST!)
+            const fragment = document.createDocumentFragment();
+
+            pendingTableUpdates.forEach(data => {
+                const row = document.createElement('tr');
+                const time = new Date(data.timestamp).toLocaleTimeString('en-US', {
+                    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'
+                });
+                const actionBadge = data.bet_placed
+                    ? '<span class="badge success">BET</span>'
+                    : '<span class="badge skip">SKIP</span>';
+                const resultBadge = data.bet_placed
+                    ? (data.profit_loss > 0
+                        ? '<span class="badge win">WIN</span>'
+                        : '<span class="badge loss">LOSS</span>')
+                    : '-';
+                const multColor = data.multiplier < 2 ? '#ef4444' :
+                                 data.multiplier < 5 ? '#fbbf24' :
+                                 data.multiplier < 10 ? '#10b981' : '#3b82f6';
+                row.innerHTML = `
+                    <td>${time}</td>
+                    <td>${actionBadge}</td>
+                    <td style="color: ${multColor}; font-weight: bold;">${data.multiplier.toFixed(2)}x</td>
+                    <td>${data.stake || '-'}</td>
+                    <td>${resultBadge}</td>
+                    <td style="color: ${data.profit_loss > 0 ? '#10b981' : data.profit_loss < 0 ? '#ef4444' : '#fff'}; font-weight: bold;">
+                        ${data.profit_loss !== 0 ? (data.profit_loss > 0 ? '+' : '') + data.profit_loss.toFixed(2) : '-'}
+                    </td>
+                `;
+                fragment.appendChild(row);
             });
-            const actionBadge = data.bet_placed 
-                ? '<span class="badge success">BET</span>'
-                : '<span class="badge skip">SKIP</span>';
-            const resultBadge = data.bet_placed
-                ? (data.profit_loss > 0 
-                    ? '<span class="badge win">WIN</span>'
-                    : '<span class="badge loss">LOSS</span>')
-                : '-';
-            const multColor = data.multiplier < 2 ? '#ef4444' :
-                             data.multiplier < 5 ? '#fbbf24' :
-                             data.multiplier < 10 ? '#10b981' : '#3b82f6';
-            row.innerHTML = `
-                <td>${time}</td>
-                <td>${actionBadge}</td>
-                <td style="color: ${multColor}; font-weight: bold;">${data.multiplier.toFixed(2)}x</td>
-                <td>${data.stake || '-'}</td>
-                <td>${resultBadge}</td>
-                <td style="color: ${data.profit_loss > 0 ? '#10b981' : data.profit_loss < 0 ? '#ef4444' : '#fff'}; font-weight: bold;">
-                    ${data.profit_loss !== 0 ? (data.profit_loss > 0 ? '+' : '') + data.profit_loss.toFixed(2) : '-'}
-                </td>
-            `;
-            tbody.insertBefore(row, tbody.firstChild);
+
+            // Single DOM insertion (prevents multiple reflows)
+            tbody.insertBefore(fragment, tbody.firstChild);
+
+            // Trim excess rows
             while (tbody.children.length > 50) {
                 tbody.removeChild(tbody.lastChild);
             }
+
+            pendingTableUpdates = [];
+            tableUpdateScheduled = false;
         }
+        // Performance optimization: Throttle multiplier bubble updates
+        let pendingMultipliers = [];
+        let multiplierUpdateScheduled = false;
+
         function addRecentMultiplier(mult) {
+            pendingMultipliers.push(mult);
+
+            if (!multiplierUpdateScheduled) {
+                multiplierUpdateScheduled = true;
+                requestAnimationFrame(flushMultiplierUpdates);
+            }
+        }
+
+        function flushMultiplierUpdates() {
+            if (pendingMultipliers.length === 0) {
+                multiplierUpdateScheduled = false;
+                return;
+            }
+
             const container = document.getElementById('recent-rounds');
-            const bubble = document.createElement('div');
-            const category = mult < 2 ? 'crash' : 
-                           mult < 5 ? 'low' : 
-                           mult < 10 ? 'medium' : 
-                           mult < 20 ? 'high' : 'mega';
-            bubble.className = 'round-bubble ' + category;
-            bubble.textContent = mult.toFixed(2) + 'x';
-            container.insertBefore(bubble, container.firstChild);
+            const fragment = document.createDocumentFragment();
+
+            pendingMultipliers.forEach(mult => {
+                const bubble = document.createElement('div');
+                const category = mult < 2 ? 'crash' :
+                               mult < 5 ? 'low' :
+                               mult < 10 ? 'medium' :
+                               mult < 20 ? 'high' : 'mega';
+                bubble.className = 'round-bubble ' + category;
+                bubble.textContent = mult.toFixed(2) + 'x';
+                fragment.appendChild(bubble);
+            });
+
+            container.insertBefore(fragment, container.firstChild);
+
             while (container.children.length > 24) {
                 container.removeChild(container.lastChild);
             }
+
+            pendingMultipliers = [];
+            multiplierUpdateScheduled = false;
         }
         fetch('/api/stats')
             .then(r => r.json())

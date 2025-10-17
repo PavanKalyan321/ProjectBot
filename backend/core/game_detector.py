@@ -39,7 +39,7 @@ class GameStateDetector:
         try:
             # Clear clipboard
             clear_clipboard()
-            time.sleep(0.15)
+            time.sleep(0.1)
             
             # Select text coordinates (adjust these based on your setup)
             x1, y1 = 19, 1101

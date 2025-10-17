@@ -1,12 +1,13 @@
-"""Clipboard utility functions for reading game data."""
+"""
+Enhanced Clipboard utility functions with robust multiplier parsing.
+Handles jammed values, dashes, and special characters.
+"""
 
 import time
 import re
 import win32clipboard
 import win32con
 import pyautogui
-
-# --- (your original functions unchanged) ---
 
 
 def clear_clipboard():
@@ -80,6 +81,9 @@ def select_and_copy_text(x1, y1, x2, y2, delay=0.1):
         # Copy to clipboard
         pyautogui.hotkey('ctrl', 'c')
         time.sleep(0.2)
+
+        pyautogui.mouseDown()
+        pyautogui.mouseUp()
         
         return True
     except Exception as e:
@@ -87,44 +91,109 @@ def select_and_copy_text(x1, y1, x2, y2, delay=0.1):
         return False
 
 
-def parse_multiplier_from_text(text):
+def extract_all_multipliers(text):
     """
-    Parse multiplier value from text.
+    Extract ALL multipliers from text (handles jammed values).
     
     Args:
-        text: Text containing multiplier (e.g., "2.5x", "x3.78", "2.0")
+        text: Text containing one or more multipliers
+        
+    Returns:
+        list: All valid multipliers found, in order
+        
+    Examples:
+        "2.54 3.45" -> [2.54, 3.45]
+        "2.54 - 3.45" -> [2.54, 3.45]
+        "2.54x 3.45x" -> [2.54, 3.45]
+        "- 2.54" -> [2.54]
+    """
+    if not text:
+        return []
+    
+    text = str(text).strip()
+    
+    # Replace common separators with spaces
+    text = text.replace(',', ' ').replace('|', ' ').replace('/', ' ')
+    
+    # Split by whitespace and dashes
+    parts = re.split(r'[\s\-]+', text)
+    
+    multipliers = []
+    
+    for part in parts:
+        if not part or part == '-':
+            continue
+        
+        # Remove 'x' suffix/prefix and any other non-numeric chars except decimal
+        part = re.sub(r'[^\d.]', '', part).strip()
+        
+        if not part:
+            continue
+        
+        try:
+            value = float(part)
+            
+            # Validate range (0.01 to 10000)
+            if 0.01 <= value <= 10000:
+                multipliers.append(value)
+        except ValueError:
+            continue
+    
+    return multipliers
+
+
+def parse_multiplier_from_text(text):
+    """
+    Parse multiplier value from text (enhanced to handle multiple values).
+    Returns the LAST multiplier found (most recent).
+    
+    Args:
+        text: Text containing multiplier (e.g., "2.5x", "x3.78", "2.0", "2.5 3.4", "2.5 - 3.4")
     
     Returns:
-        float or None: Parsed multiplier value or None if not found
+        float or None: Last parsed multiplier value or None if not found
+        
+    Examples:
+        "2.5x" -> 2.5
+        "2.5 3.4" -> 3.4 (last one)
+        "2.5 - 3.4" -> 3.4 (ignores dash)
+        "- 2.5" -> 2.5
     """
     if not text:
         return None
     
-    # Clean text
-    text = text.strip().replace(' ', '').replace(',', '.')
+    # Extract all multipliers
+    multipliers = extract_all_multipliers(text)
     
-    # Try different patterns
-    patterns = [
-        r'(\d+\.?\d*)x',  # "2.5x"
-        r'x(\d+\.?\d*)',  # "x2.5"
-        r'^(\d+\.?\d*)$'  # "2.5"
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                value = float(match.group(1))
-                # Validate range
-                if 0 < value <= 1000:
-                    return value
-            except:
-                continue
+    # Return the last one (most recent/rightmost)
+    if multipliers:
+        return multipliers[-1]
     
     return None
 
 
-# --- (new helpers appended below — original functions above are untouched) ---
+def parse_multiplier_first(text):
+    """
+    Parse the FIRST multiplier from text (leftmost).
+    Useful when you want the older value from jammed text.
+    
+    Args:
+        text: Text containing multiplier(s)
+    
+    Returns:
+        float or None: First parsed multiplier value or None if not found
+    """
+    if not text:
+        return None
+    
+    multipliers = extract_all_multipliers(text)
+    
+    if multipliers:
+        return multipliers[0]
+    
+    return None
+
+
 # Additional optional imports for mutex
 try:
     import win32event
@@ -138,21 +207,11 @@ def acquire_mutex(mutex_name: str = "Global\\ClipboardUtilsMutex"):
     """
     Acquire a named Win32 mutex to avoid multiple script/process instances.
     Returns the mutex handle on success, None otherwise.
-    
-    Usage:
-        h = acquire_mutex()
-        if h is None:
-            # mutex not available or win32 not present
-            ...
-        else:
-            # hold h for lifetime of process, then ReleaseMutex on exit if desired
     """
     if win32event is None or win32api is None:
         return None
     try:
         handle = win32event.CreateMutex(None, False, mutex_name)
-        # NOTE: even if ERROR_ALREADY_EXISTS is returned, CreateMutex returns a handle.
-        # Caller can still use it to hold a mutex. We return the handle.
         return handle
     except Exception:
         return None
@@ -168,7 +227,6 @@ def is_clipboard_busy(poll_seconds: float = 0.2) -> bool:
         win32clipboard.CloseClipboard()
         return False
     except Exception:
-        # If open fails, clipboard likely busy
         time.sleep(poll_seconds)
         return True
 
@@ -180,24 +238,31 @@ def copy_region_to_multiplier(x1, y1, x2, y2,
                               select_delay: float = None,
                               after_copy_wait: float = None,
                               clipboard_timeout: float = 0.5,
+                              return_all: bool = False,
                               debug: bool = False):
     """
     Convenience wrapper: select region, copy, read clipboard, parse multiplier.
-    DOES NOT modify your original functions; it calls them.
+    Enhanced to handle jammed values and special characters.
 
     Args:
         x1,y1,x2,y2: region coordinates (ints)
         fast: if True uses low delays for speedy operation
         clear_before: attempt to clear clipboard before copying
         select_delay: overrides select_and_copy_text's delay param if provided
-        after_copy_wait: time to wait after pressing Ctrl+C (overridden via select_and_copy_text call)
-        clipboard_timeout: time (sec) to wait for clipboard to fill (polled by read_clipboard)
+        after_copy_wait: time to wait after pressing Ctrl+C
+        clipboard_timeout: time (sec) to wait for clipboard to fill
+        return_all: if True, returns list of all multipliers; if False, returns last one
         debug: print debug lines
 
     Returns:
-        float multiplier if parsed, otherwise None
+        float (or list if return_all=True): multiplier(s) if parsed, otherwise None (or [])
+        
+    Examples:
+        # Region contains "2.54 3.45"
+        copy_region_to_multiplier(x1,y1,x2,y2) -> 3.45 (last)
+        copy_region_to_multiplier(x1,y1,x2,y2, return_all=True) -> [2.54, 3.45]
     """
-    # choose small delay values for speed if fast=True
+    # Choose small delay values for speed if fast=True
     if select_delay is None:
         select_delay = 0.05 if fast else 0.15
     if after_copy_wait is None:
@@ -209,43 +274,45 @@ def copy_region_to_multiplier(x1, y1, x2, y2,
         except Exception:
             pass
 
-    # use existing selection function; it will sleep internally based on its delay param.
+    # Use existing selection function
     ok = select_and_copy_text(x1, y1, x2, y2, delay=select_delay)
     if not ok:
         if debug:
             print("[copy_region_to_multiplier] select_and_copy_text failed")
-        return None
+        return [] if return_all else None
 
-    # small extra wait to give clipboard a moment (read_clipboard retries internally)
+    # Wait for clipboard
     t_deadline = time.time() + clipboard_timeout
     raw = None
     while time.time() < t_deadline:
         raw = read_clipboard()
         if raw:
             break
-        # If clipboard busy, wait a little and retry
         time.sleep(0.02)
 
     if debug:
         print(f"[copy_region_to_multiplier] raw clipboard: {raw!r}")
 
     try:
-        val = parse_multiplier_from_text(raw)
+        if return_all:
+            # Return all multipliers found
+            vals = extract_all_multipliers(raw)
+            if debug:
+                print(f"[copy_region_to_multiplier] parsed all: {vals}")
+            return vals
+        else:
+            # Return last multiplier (default behavior)
+            val = parse_multiplier_from_text(raw)
+            if debug:
+                print(f"[copy_region_to_multiplier] parsed last: {val}")
+            return val
+    except Exception as e:
         if debug:
-            print(f"[copy_region_to_multiplier] parsed: {val!r}")
-        return val
-    except Exception:
-        return None
+            print(f"[copy_region_to_multiplier] parse error: {e}")
+        return [] if return_all else None
 
 
-# Simple self-test block — nothing runs when this file is imported.
+
+# Simple self-test block
 if __name__ == "__main__":
-    # Example: to enable single-instance guard when running the file directly,
-    # uncomment the following lines:
-    #
-    # h = acquire_mutex()
-    # if h is None:
-    #     print("Warning: Could not acquire mutex (win32 not available or error).")
-    #
-    print("clipboard module executed directly. No automated tests run.")
-    print("Use copy_region_to_multiplier(x1,y1,x2,y2) from your main bot.")
+    print("="*60)

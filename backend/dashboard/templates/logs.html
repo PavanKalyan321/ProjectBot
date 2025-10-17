@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aviator Bot - All Logs</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
+            color: #fff;
+            padding: 10px;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .container {
+            max-width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .header {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            padding: 15px 20px;
+            border-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .nav-link {
+            background: rgba(255,255,255,0.2);
+            padding: 8px 16px;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        .nav-link:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+        }
+        .controls {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            padding: 12px 20px;
+            border-radius: 12px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .toggle {
+            position: relative;
+            width: 50px;
+            height: 26px;
+        }
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255,255,255,0.3);
+            transition: .4s;
+            border-radius: 26px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #10b981;
+        }
+        input:checked + .slider:before {
+            transform: translateX(24px);
+        }
+        .logs-panel {
+            flex: 1;
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 15px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .logs-header {
+            font-size: 16px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid rgba(255,255,255,0.3);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .log-count {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+        .logs-container {
+            flex: 1;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+        .logs-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .logs-table th {
+            background: rgba(255,255,255,0.2);
+            padding: 10px 8px;
+            text-align: left;
+            font-size: 11px;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .logs-table td {
+            padding: 10px 8px;
+            font-size: 11px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .logs-table tr:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .logs-table tr.new-log {
+            animation: highlight 1s ease;
+        }
+        @keyframes highlight {
+            0% { background: rgba(16,185,129,0.3); }
+            100% { background: transparent; }
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        .badge.success { background: #10b981; color: #fff; }
+        .badge.skip { background: #6b7280; color: #fff; }
+        .badge.win { background: #22c55e; color: #fff; }
+        .badge.loss { background: #dc2626; color: #fff; }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            opacity: 0.7;
+            font-size: 14px;
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.5); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📜 Aviator Bot - All Logs</h1>
+            <div style="display: flex; gap: 15px; align-items: center;">
+                <a href="/" class="nav-link">← Back to Dashboard</a>
+                <div id="timestamp" style="font-size: 14px; opacity: 0.9;"></div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="toggle-container">
+                <label style="font-size: 13px; font-weight: 500;">Auto-Scroll</label>
+                <label class="toggle">
+                    <input type="checkbox" id="auto-scroll" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div style="font-size: 12px; opacity: 0.8;">
+                New logs will appear at the bottom automatically
+            </div>
+        </div>
+
+        <div class="logs-panel">
+            <div class="logs-header">
+                <span>Complete Round History</span>
+                <span class="log-count" id="log-count">Loading...</span>
+            </div>
+            <div class="logs-container" id="logs-container">
+                <table class="logs-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Action</th>
+                            <th>Multiplier</th>
+                            <th>Stake</th>
+                            <th>Cashout</th>
+                            <th>Result</th>
+                            <th>P/L</th>
+                            <th>ML Prediction</th>
+                            <th>Confidence</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logs-tbody">
+                        <tr>
+                            <td colspan="9" class="loading">
+                                Loading logs...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let autoScroll = true;
+        let logsLoaded = false;
+
+        // Update timestamp
+        setInterval(() => {
+            document.getElementById('timestamp').textContent =
+                new Date().toLocaleTimeString('en-US', {hour12: false});
+        }, 1000);
+
+        // Auto-scroll toggle
+        document.getElementById('auto-scroll').addEventListener('change', (e) => {
+            autoScroll = e.target.checked;
+        });
+
+        // Scroll to bottom function
+        function scrollToBottom() {
+            if (autoScroll) {
+                const container = document.getElementById('logs-container');
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        // Add log to table
+        function addLogToTable(log, animate = false) {
+            const tbody = document.getElementById('logs-tbody');
+
+            if (!logsLoaded) {
+                tbody.innerHTML = '';
+                logsLoaded = true;
+            }
+
+            const row = document.createElement('tr');
+            if (animate) {
+                row.className = 'new-log';
+            }
+
+            const actionBadge = log.bet_placed
+                ? '<span class="badge success">BET</span>'
+                : '<span class="badge skip">SKIP</span>';
+
+            const resultBadge = log.bet_placed
+                ? (log.profit_loss > 0
+                    ? '<span class="badge win">WIN</span>'
+                    : '<span class="badge loss">LOSS</span>')
+                : '-';
+
+            const multColor = log.multiplier < 2 ? '#ef4444' :
+                             log.multiplier < 5 ? '#fbbf24' :
+                             log.multiplier < 10 ? '#10b981' : '#3b82f6';
+
+            const prediction = log.prediction !== null && log.prediction !== 'None'
+                ? parseFloat(log.prediction).toFixed(2) + 'x'
+                : '-';
+
+            row.innerHTML = `
+                <td>${log.timestamp}</td>
+                <td>${actionBadge}</td>
+                <td style="color: ${multColor}; font-weight: bold;">${log.multiplier.toFixed(2)}x</td>
+                <td>${log.stake > 0 ? log.stake : '-'}</td>
+                <td>${log.cashout_time > 0 ? log.cashout_time.toFixed(1) + 's' : '-'}</td>
+                <td>${resultBadge}</td>
+                <td style="color: ${log.profit_loss > 0 ? '#10b981' : log.profit_loss < 0 ? '#ef4444' : '#fff'}; font-weight: bold;">
+                    ${log.profit_loss !== 0 ? (log.profit_loss > 0 ? '+' : '') + log.profit_loss.toFixed(2) : '-'}
+                </td>
+                <td style="opacity: 0.8;">${prediction}</td>
+                <td style="opacity: 0.8;">${log.confidence > 0 ? (log.confidence * 100).toFixed(0) + '%' : '-'}</td>
+            `;
+
+            tbody.appendChild(row);
+
+            // Update count
+            updateLogCount();
+
+            // Auto-scroll if enabled
+            requestAnimationFrame(scrollToBottom);
+        }
+
+        // Update log count
+        function updateLogCount() {
+            const tbody = document.getElementById('logs-tbody');
+            const count = tbody.children.length;
+            document.getElementById('log-count').textContent = `${count} rounds`;
+        }
+
+        // Load initial logs
+        fetch('/api/logs')
+            .then(r => r.json())
+            .then(data => {
+                if (data.logs && data.logs.length > 0) {
+                    data.logs.forEach(log => addLogToTable(log, false));
+                } else {
+                    const tbody = document.getElementById('logs-tbody');
+                    tbody.innerHTML = '<tr><td colspan="9" class="loading">No logs available yet</td></tr>';
+                }
+            })
+            .catch(err => {
+                console.error('Error loading logs:', err);
+                const tbody = document.getElementById('logs-tbody');
+                tbody.innerHTML = '<tr><td colspan="9" class="loading">Error loading logs</td></tr>';
+            });
+
+        // Listen for new rounds from socket
+        socket.on('round_update', (data) => {
+            addLogToTable({
+                timestamp: data.timestamp,
+                bet_placed: data.bet_placed || false,
+                multiplier: data.multiplier,
+                stake: data.stake || 0,
+                cashout_time: data.cashout_time || 0,
+                profit_loss: data.profit_loss || 0,
+                prediction: data.prediction,
+                confidence: data.confidence || 0
+            }, true);
+        });
+    </script>
+</body>
+</html>
