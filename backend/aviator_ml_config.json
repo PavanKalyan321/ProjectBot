@@ -1,29 +1,29 @@
 {
   "stake_coords": [
-    370,
-    794
+    344,
+    788
   ],
   "bet_button_coords": [
-    360,
-    910
+    376,
+    907
   ],
   "cashout_coords": [
-    360,
+    372,
     910
   ],
   "multiplier_region": [
-    325,
-    510,
-    335,
-    58
+    334,
+    505,
+    296,
+    65
   ],
   "history_region": [
-    91,
-    1105,
-    496,
-    8
+    60,
+    1107,
+    789,
+    -6
   ],
-  "cashout_delay": 3.0,
+  "cashout_delay": 2.0,
   "initial_stake": 50,
   "max_stake": 200,
   "stake_increase_percent": 25

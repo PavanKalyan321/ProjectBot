@@ -41,6 +41,10 @@ class AviatorDashboard:
         def index():
             return render_template('dashboard.html')
 
+        @self.app.route('/advanced')
+        def advanced():
+            return render_template('advanced_dashboard.html')
+
         @self.app.route('/logs')
         def logs():
             return render_template('logs.html')

@@ -8,9 +8,10 @@ import pickle
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, RandomForestClassifier, GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -46,11 +47,15 @@ class AviatorMLModels:
         self.models_dir = models_dir
         os.makedirs(models_dir, exist_ok=True)
 
-        # Model instances
+        # Regression model instances
         self.random_forest = None
         self.gradient_boosting = None
         self.lightgbm = None
         self.lstm = None
+
+        # Classification model instances (for green/red prediction)
+        self.classifiers = {}  # {target: model} e.g., {1.5: model, 2.0: model, 3.0: model}
+        self.classifier_scores = {}  # {target: {'accuracy': x, 'precision': y}}
 
         # Scaler for feature normalization
         self.scaler = StandardScaler()
@@ -74,18 +79,26 @@ class AviatorMLModels:
             target_column: Column to predict
 
         Returns:
-            X (features), y (targets)
+            X (features), y (targets), sample_weights (if available)
         """
         if df.empty or target_column not in df.columns:
-            return None, None
+            return None, None, None
 
         multipliers = df[target_column].values
 
+        # Extract sample weights if available
+        has_weights = 'sample_weight' in df.columns
+        if has_weights:
+            weights = df['sample_weight'].values
+        else:
+            weights = None
+
         if len(multipliers) < self.sequence_length + 1:
-            return None, None
+            return None, None, None
 
         features = []
         targets = []
+        sample_weights = [] if has_weights else None
 
         for i in range(len(multipliers) - self.sequence_length):
             # Get sequence of past multipliers
@@ -163,8 +176,14 @@ class AviatorMLModels:
             features.append(feature_vector)
             targets.append(multipliers[i + self.sequence_length])
 
+            # Store weight for this sample (use weight of target round)
+            if has_weights:
+                sample_weights.append(weights[i + self.sequence_length])
+
         X = np.array(features)
         y = np.array(targets)
+        if sample_weights is not None:
+            sample_weights = np.array(sample_weights)
 
         # Store feature names for reference
         if not self.feature_names:
@@ -176,21 +195,23 @@ class AviatorMLModels:
                  'time_since_high', 'p25', 'p50', 'p75', 'entropy']
             )
 
-        return X, y
+        return X, y, sample_weights
 
-    def train_models(self, csv_file='aviator_rounds_history.csv', min_samples=100):
+    def train_models(self, csv_file='aviator_rounds_history.csv', min_samples=100, cap_outliers=True):
         """
-        Train all available ML models on historical data.
+        Train all available ML models on historical data with time-based weighting.
+        Recent rounds get higher weight for time-sensitive predictions.
 
         Args:
             csv_file: Path to CSV file with historical data
             min_samples: Minimum number of samples required for training
+            cap_outliers: Cap extreme outliers to improve model stability
 
         Returns:
             bool: True if training successful
         """
         print(f"\n{'='*80}")
-        print("TRAINING ML MODELS")
+        print("TRAINING ML MODELS (TIME-WEIGHTED + OUTLIER-ROBUST)")
         print(f"{'='*80}")
 
         # Load data
@@ -218,8 +239,56 @@ class AviatorMLModels:
         df = df[df['multiplier'] > 0]  # Remove invalid multipliers
         print(f"[OK] After cleaning: {len(df)} valid rounds")
 
-        # Engineer features
-        X, y = self.engineer_features(df)
+        # Handle outliers for stable training
+        if cap_outliers:
+            outlier_count = len(df[df['multiplier'] > 100])
+            if outlier_count > 0:
+                print(f"\n[OUTLIER HANDLING]")
+                print(f"  Found {outlier_count} extreme outliers (>100x)")
+                print(f"  Median: {df['multiplier'].median():.2f}x")
+                print(f"  95th percentile: {df['multiplier'].quantile(0.95):.2f}x")
+                print(f"  99th percentile: {df['multiplier'].quantile(0.99):.2f}x")
+
+                # Cap at 99th percentile to preserve most data while removing extremes
+                cap_value = df['multiplier'].quantile(0.99)
+                df.loc[df['multiplier'] > cap_value, 'multiplier'] = cap_value
+                print(f"  [OK] Capped outliers at {cap_value:.2f}x for stable training")
+                print(f"  [OK] New max: {df['multiplier'].max():.2f}x")
+
+        # Calculate time-based weights (exponential decay)
+        # Recent rounds get higher weight for time-sensitive game
+        if 'timestamp' in df.columns:
+            try:
+                df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+                df = df.dropna(subset=['timestamp'])
+
+                # Calculate age in hours
+                now = datetime.now()
+                df['age_hours'] = (now - df['timestamp']).dt.total_seconds() / 3600
+
+                # Exponential decay: weight = exp(-age / decay_factor)
+                # decay_factor = 24 means half-life of 24 hours
+                decay_factor = 24.0
+                df['sample_weight'] = np.exp(-df['age_hours'] / decay_factor)
+
+                # Show weight distribution
+                recent_6h = df[df['age_hours'] <= 6]
+                recent_24h = df[df['age_hours'] <= 24]
+
+                print(f"\n[TIME-WEIGHTING]")
+                print(f"  Last 6 hours:  {len(recent_6h):4d} rounds (avg weight: {recent_6h['sample_weight'].mean():.3f})")
+                print(f"  Last 24 hours: {len(recent_24h):4d} rounds (avg weight: {recent_24h['sample_weight'].mean():.3f})")
+                print(f"  Older data:    {len(df[df['age_hours'] > 24]):4d} rounds (avg weight: {df[df['age_hours'] > 24]['sample_weight'].mean():.3f})")
+
+            except Exception as e:
+                print(f"[WARNING] Could not apply time-weighting: {e}")
+                df['sample_weight'] = 1.0
+        else:
+            print(f"[WARNING] No timestamp column - using equal weights")
+            df['sample_weight'] = 1.0
+
+        # Engineer features with weights
+        X, y, sample_weights = self.engineer_features(df)
 
         if X is None or len(X) < min_samples:
             print(f"ERROR: Insufficient data. Need {min_samples} samples, have {len(X) if X is not None else 0}")
@@ -227,10 +296,16 @@ class AviatorMLModels:
 
         print(f"[OK] Engineered {X.shape[1]} features from {len(X)} samples")
 
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, shuffle=False
-        )
+        # Split data (don't shuffle to preserve time order)
+        if sample_weights is not None:
+            X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
+                X, y, sample_weights, test_size=0.2, random_state=42, shuffle=False
+            )
+        else:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42, shuffle=False
+            )
+            w_train, w_test = None, None
 
         # Normalize features
         X_train_scaled = self.scaler.fit_transform(X_train)
@@ -241,7 +316,7 @@ class AviatorMLModels:
         print(f"\nTarget Range: {y.min():.2f}x - {y.max():.2f}x")
         print(f"Target Mean: {y.mean():.2f}x | Std: {y.std():.2f}x")
 
-        # Train RandomForest
+        # Train RandomForest with sample weights
         print(f"\n{'-'*80}")
         print("1. Training Random Forest...")
         self.random_forest = RandomForestRegressor(
@@ -252,12 +327,14 @@ class AviatorMLModels:
             random_state=42,
             n_jobs=-1
         )
-        self.random_forest.fit(X_train_scaled, y_train)
+        self.random_forest.fit(X_train_scaled, y_train, sample_weight=w_train)
         rf_score = self.random_forest.score(X_test_scaled, y_test)
         self.model_scores['RandomForest'] = rf_score
         print(f"   [OK] R2 Score: {rf_score:.4f}")
+        if w_train is not None:
+            print(f"   [OK] Time-weighted training applied")
 
-        # Train GradientBoosting
+        # Train GradientBoosting with sample weights
         print(f"\n2. Training Gradient Boosting...")
         self.gradient_boosting = GradientBoostingRegressor(
             n_estimators=100,
@@ -266,12 +343,14 @@ class AviatorMLModels:
             min_samples_split=5,
             random_state=42
         )
-        self.gradient_boosting.fit(X_train_scaled, y_train)
+        self.gradient_boosting.fit(X_train_scaled, y_train, sample_weight=w_train)
         gb_score = self.gradient_boosting.score(X_test_scaled, y_test)
         self.model_scores['GradientBoosting'] = gb_score
         print(f"   [OK] R2 Score: {gb_score:.4f}")
+        if w_train is not None:
+            print(f"   [OK] Time-weighted training applied")
 
-        # Train LightGBM if available
+        # Train LightGBM if available with sample weights
         if LIGHTGBM_AVAILABLE:
             print(f"\n3. Training LightGBM...")
             self.lightgbm = lgb.LGBMRegressor(
@@ -282,14 +361,16 @@ class AviatorMLModels:
                 random_state=42,
                 verbose=-1
             )
-            self.lightgbm.fit(X_train_scaled, y_train)
+            self.lightgbm.fit(X_train_scaled, y_train, sample_weight=w_train)
             lgb_score = self.lightgbm.score(X_test_scaled, y_test)
             self.model_scores['LightGBM'] = lgb_score
             print(f"   [OK] R2 Score: {lgb_score:.4f}")
+            if w_train is not None:
+                print(f"   [OK] Time-weighted training applied")
         else:
             print(f"\n3. LightGBM not available (install: pip install lightgbm)")
 
-        # Train LSTM if available
+        # Train LSTM if available with sample weights
         if KERAS_AVAILABLE:
             print(f"\n4. Training LSTM...")
             # Reshape for LSTM (samples, timesteps, features)
@@ -308,6 +389,7 @@ class AviatorMLModels:
             self.lstm.compile(optimizer='adam', loss='mse', metrics=['mae'])
             self.lstm.fit(
                 X_train_lstm, y_train,
+                sample_weight=w_train,  # Apply time-based weights
                 epochs=50,
                 batch_size=32,
                 validation_split=0.1,
@@ -317,6 +399,8 @@ class AviatorMLModels:
             lstm_score = self.lstm.evaluate(X_test_lstm, y_test, verbose=0)[0]
             self.model_scores['LSTM'] = 1 - (lstm_score / np.var(y_test))  # Approximate R²
             print(f"   [OK] R2 Score: {self.model_scores['LSTM']:.4f}")
+            if w_train is not None:
+                print(f"   [OK] Time-weighted training applied")
         else:
             print(f"\n4. LSTM not available (install: pip install tensorflow)")
 
@@ -324,9 +408,6 @@ class AviatorMLModels:
         self.is_trained = True
         self.last_train_date = datetime.now()
         self.train_samples = len(X)
-
-        # Save models
-        self.save_models()
 
         print(f"\n{'='*80}")
         print("MODEL TRAINING COMPLETE")
@@ -336,7 +417,85 @@ class AviatorMLModels:
             print(f"   {name:20s}: R2 = {score:.4f}")
         print(f"{'='*80}\n")
 
+        # Train classification models for green/red prediction
+        self._train_green_classifiers(X_train_scaled, y_train, X_test_scaled, y_test, w_train, w_test)
+
+        # Save all models (including classifiers)
+        self.save_models()
+
         return True
+
+    def _train_green_classifiers(self, X_train, y_train, X_test, y_test, w_train=None, w_test=None):
+        """
+        Train binary classifiers to predict if multiplier will hit target thresholds.
+        This is more practical than regression for betting decisions.
+
+        Args:
+            X_train, y_train: Training data
+            X_test, y_test: Test data
+            w_train, w_test: Sample weights
+        """
+        print(f"\n{'='*80}")
+        print("TRAINING GREEN/RED CLASSIFIERS (BETTING SIGNAL)")
+        print(f"{'='*80}")
+
+        # Target multipliers to predict
+        targets = [1.5, 2.0, 3.0, 5.0]
+
+        for target in targets:
+            print(f"\n{'-'*80}")
+            print(f"Training classifier for {target}x target...")
+
+            # Create binary labels: 1 if multiplier >= target, 0 otherwise
+            y_train_binary = (y_train >= target).astype(int)
+            y_test_binary = (y_test >= target).astype(int)
+
+            # Check class balance
+            train_positive = np.sum(y_train_binary)
+            train_negative = len(y_train_binary) - train_positive
+            test_positive = np.sum(y_test_binary)
+
+            print(f"  Training set: {train_positive} green / {train_negative} red ({train_positive/len(y_train_binary)*100:.1f}% green)")
+            print(f"  Test set: {test_positive} green / {len(y_test_binary)-test_positive} red")
+
+            # Train classifier
+            clf = RandomForestClassifier(
+                n_estimators=100,
+                max_depth=15,
+                min_samples_split=5,
+                min_samples_leaf=2,
+                random_state=42,
+                n_jobs=-1,
+                class_weight='balanced'  # Handle imbalanced classes
+            )
+            clf.fit(X_train, y_train_binary, sample_weight=w_train)
+
+            # Evaluate
+            y_pred = clf.predict(X_test)
+            y_pred_proba = clf.predict_proba(X_test)[:, 1]  # Probability of green
+
+            accuracy = accuracy_score(y_test_binary, y_pred)
+            precision = precision_score(y_test_binary, y_pred, zero_division=0)
+            recall = recall_score(y_test_binary, y_pred, zero_division=0)
+            f1 = f1_score(y_test_binary, y_pred, zero_division=0)
+
+            # Store classifier and scores
+            self.classifiers[target] = clf
+            self.classifier_scores[target] = {
+                'accuracy': accuracy,
+                'precision': precision,
+                'recall': recall,
+                'f1': f1
+            }
+
+            print(f"  [OK] Accuracy:  {accuracy*100:.1f}%")
+            print(f"  [OK] Precision: {precision*100:.1f}% (of predicted greens, how many were correct)")
+            print(f"  [OK] Recall:    {recall*100:.1f}% (of actual greens, how many we caught)")
+            print(f"  [OK] F1 Score:  {f1:.3f}")
+
+        print(f"\n{'='*80}")
+        print("GREEN/RED CLASSIFIER TRAINING COMPLETE")
+        print(f"{'='*80}\n")
 
     def predict(self, recent_multipliers):
         """
@@ -357,7 +516,7 @@ class AviatorMLModels:
 
         # Prepare features
         sequence = recent_multipliers[-self.sequence_length:]
-        features, _ = self.engineer_features(
+        features, _, _ = self.engineer_features(
             pd.DataFrame({'multiplier': sequence + [0]})
         )
 
@@ -412,6 +571,94 @@ class AviatorMLModels:
             })
 
         return predictions
+
+    def predict_green_probability(self, recent_multipliers, target_multiplier=2.0):
+        """
+        Predict probability of next round hitting the target multiplier (GREEN).
+        This is more actionable than predicting exact multiplier value.
+
+        Args:
+            recent_multipliers: List of recent multipliers
+            target_multiplier: Target to predict (1.5, 2.0, 3.0, 5.0)
+
+        Returns:
+            dict: {
+                'target': target_multiplier,
+                'green_probability': 0-100,
+                'confidence': 0-100,
+                'recommendation': 'BET' or 'SKIP',
+                'accuracy': historical accuracy for this target
+            }
+        """
+        # Check if classifier exists for this target
+        if target_multiplier not in self.classifiers:
+            return {
+                'target': target_multiplier,
+                'green_probability': 50.0,
+                'confidence': 0.0,
+                'recommendation': 'SKIP',
+                'accuracy': 0.0,
+                'reason': f'No classifier trained for {target_multiplier}x'
+            }
+
+        if len(recent_multipliers) < self.sequence_length:
+            return {
+                'target': target_multiplier,
+                'green_probability': 50.0,
+                'confidence': 0.0,
+                'recommendation': 'SKIP',
+                'accuracy': 0.0,
+                'reason': 'Insufficient history'
+            }
+
+        # Prepare features
+        sequence = recent_multipliers[-self.sequence_length:]
+        features, _, _ = self.engineer_features(
+            pd.DataFrame({'multiplier': sequence + [0]})
+        )
+
+        if features is None:
+            return {
+                'target': target_multiplier,
+                'green_probability': 50.0,
+                'confidence': 0.0,
+                'recommendation': 'SKIP',
+                'accuracy': 0.0,
+                'reason': 'Feature engineering failed'
+            }
+
+        # Get last feature vector
+        X = features[-1].reshape(1, -1)
+        X_scaled = self.scaler.transform(X)
+
+        # Predict probability
+        clf = self.classifiers[target_multiplier]
+        green_proba = clf.predict_proba(X_scaled)[0][1] * 100  # Probability of class 1 (green)
+
+        # Get historical accuracy
+        scores = self.classifier_scores.get(target_multiplier, {})
+        accuracy = scores.get('accuracy', 0) * 100
+        precision = scores.get('precision', 0) * 100
+
+        # Calculate confidence based on model performance
+        confidence = (accuracy + precision) / 2
+
+        # Make recommendation
+        # Only recommend BET if green_probability > 55% and confidence > 50%
+        if green_proba > 55 and confidence > 50:
+            recommendation = 'BET'
+        else:
+            recommendation = 'SKIP'
+
+        return {
+            'target': target_multiplier,
+            'green_probability': round(green_proba, 1),
+            'confidence': round(confidence, 1),
+            'recommendation': recommendation,
+            'accuracy': round(accuracy, 1),
+            'precision': round(precision, 1),
+            'reason': f'Model predicts {green_proba:.1f}% chance of hitting {target_multiplier}x'
+        }
 
     def _calculate_confidence(self, prediction, model_name):
         """
@@ -476,6 +723,11 @@ class AviatorMLModels:
         with open(os.path.join(self.models_dir, 'scaler.pkl'), 'wb') as f:
             pickle.dump(self.scaler, f)
 
+        # Save classifiers
+        if self.classifiers:
+            with open(os.path.join(self.models_dir, 'classifiers.pkl'), 'wb') as f:
+                pickle.dump(self.classifiers, f)
+
         # Save LSTM separately
         if self.lstm is not None:
             self.lstm.save(os.path.join(self.models_dir, 'lstm_model.h5'))
@@ -486,6 +738,7 @@ class AviatorMLModels:
             'last_train_date': self.last_train_date.isoformat() if self.last_train_date else None,
             'train_samples': self.train_samples,
             'model_scores': self.model_scores,
+            'classifier_scores': self.classifier_scores,
             'sequence_length': self.sequence_length,
             'feature_names': self.feature_names
         }
@@ -508,6 +761,7 @@ class AviatorMLModels:
         self.is_trained = metadata.get('is_trained', False)
         self.train_samples = metadata.get('train_samples', 0)
         self.model_scores = metadata.get('model_scores', {})
+        self.classifier_scores = metadata.get('classifier_scores', {})
         self.sequence_length = metadata.get('sequence_length', 20)
         self.feature_names = metadata.get('feature_names', [])
 
@@ -535,6 +789,12 @@ class AviatorMLModels:
         if os.path.exists(lgb_path):
             with open(lgb_path, 'rb') as f:
                 self.lightgbm = pickle.load(f)
+
+        # Load classifiers
+        clf_path = os.path.join(self.models_dir, 'classifiers.pkl')
+        if os.path.exists(clf_path):
+            with open(clf_path, 'rb') as f:
+                self.classifiers = pickle.load(f)
 
         # Load LSTM
         lstm_path = os.path.join(self.models_dir, 'lstm_model.h5')

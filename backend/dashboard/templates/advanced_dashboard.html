@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aviator Bot - Advanced Analytics Dashboard</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #fff;
+            padding: 15px;
+            overflow-x: hidden;
+        }
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+        .header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            font-size: 28px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+            box-shadow: 0 0 15px #10b981;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.2); }
+        }
+
+        /* Top Metrics Row */
+        .metrics-row {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: all 0.3s;
+        }
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 12px rgba(0,0,0,0.2);
+        }
+        .metric-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+        .metric-label {
+            font-size: 12px;
+            opacity: 0.7;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+        .metric-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #10b981;
+        }
+        .metric-value.negative { color: #ef4444; }
+        .metric-value.neutral { color: #fbbf24; }
+
+        /* Row 1: Ensemble Model Info + 2 Charts */
+        .row-1 {
+            display: grid;
+            grid-template-columns: 350px 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        /* Row 2: 2 Charts */
+        .row-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .panel {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .panel-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid rgba(255,255,255,0.2);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Ensemble Model Info Panel */
+        .ensemble-info {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .model-item {
+            background: rgba(255,255,255,0.03);
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .model-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: #60a5fa;
+            margin-bottom: 8px;
+        }
+        .model-stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+        }
+        .model-stat-label {
+            opacity: 0.7;
+        }
+        .model-stat-value {
+            font-weight: bold;
+            color: #10b981;
+        }
+
+        /* Chart Container */
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        /* Responsive */
+        @media (max-width: 1600px) {
+            .metrics-row { grid-template-columns: repeat(3, 1fr); }
+            .row-1 { grid-template-columns: 1fr; }
+            .row-2 { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1><div class="status-indicator"></div>✈️ Aviator Bot - Advanced Analytics</h1>
+            <div id="timestamp" style="font-size: 14px; opacity: 0.9;"></div>
+        </div>
+
+        <!-- Top Metrics Row -->
+        <div class="metrics-row">
+            <div class="metric-card">
+                <div class="metric-icon">🎯</div>
+                <div class="metric-label">Total Rounds</div>
+                <div class="metric-value" id="total-rounds">0</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon">✅</div>
+                <div class="metric-label">Success Cashouts</div>
+                <div class="metric-value" id="success-cashouts">0</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon">❌</div>
+                <div class="metric-label">Failed Rounds</div>
+                <div class="metric-value negative" id="failed-rounds">0</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon">📊</div>
+                <div class="metric-label">Win Rate</div>
+                <div class="metric-value" id="win-rate">0%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon">🚀</div>
+                <div class="metric-label">Highest (1h)</div>
+                <div class="metric-value" id="highest-1h">0.00x</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon">💰</div>
+                <div class="metric-label">Profit/Loss</div>
+                <div class="metric-value" id="profit-loss">+0.00</div>
+            </div>
+        </div>
+
+        <!-- Row 1: Ensemble Info + 2 Charts -->
+        <div class="row-1">
+            <!-- Ensemble Model Info -->
+            <div class="panel">
+                <div class="panel-title">🤖 Ensemble Model Info</div>
+                <div class="ensemble-info" id="ensemble-info">
+                    <div class="model-item">
+                        <div class="model-name">Random Forest</div>
+                        <div class="model-stats">
+                            <span class="model-stat-label">Accuracy:</span>
+                            <span class="model-stat-value">-</span>
+                        </div>
+                        <div class="model-stats">
+                            <span class="model-stat-label">Last Pred:</span>
+                            <span class="model-stat-value">-</span>
+                        </div>
+                    </div>
+                    <div class="model-item">
+                        <div class="model-name">Gradient Boosting</div>
+                        <div class="model-stats">
+                            <span class="model-stat-label">Accuracy:</span>
+                            <span class="model-stat-value">-</span>
+                        </div>
+                        <div class="model-stats">
+                            <span class="model-stat-label">Last Pred:</span>
+                            <span class="model-stat-value">-</span>
+                        </div>
+                    </div>
+                    <div class="model-item">
+                        <div class="model-name">LightGBM</div>
+                        <div class="model-stats">
+                            <span class="model-stat-label">Accuracy:</span>
+                            <span class="model-stat-value">-</span>
+                        </div>
+                        <div class="model-stats">
+                            <span class="model-stat-label">Last Pred:</span>
+                            <span class="model-stat-value">-</span>
+                        </div>
+                    </div>
+                    <div class="model-item">
+                        <div class="model-name">Ensemble</div>
+                        <div class="model-stats">
+                            <span class="model-stat-label">Confidence:</span>
+                            <span class="model-stat-value" id="ensemble-confidence">-</span>
+                        </div>
+                        <div class="model-stats">
+                            <span class="model-stat-label">Last Pred:</span>
+                            <span class="model-stat-value" id="ensemble-prediction">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart 1: Ensemble Output vs Actual -->
+            <div class="panel">
+                <div class="panel-title">📈 Ensemble Prediction vs Actual Round</div>
+                <div class="chart-container">
+                    <canvas id="ensemble-vs-actual-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Chart 2: 3 Models vs Actual -->
+            <div class="panel">
+                <div class="panel-title">📊 3 Models Prediction vs Actual Round</div>
+                <div class="chart-container">
+                    <canvas id="models-vs-actual-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Row 2: Spike Detection Charts -->
+        <div class="row-2">
+            <!-- Chart 3: Spike Predictor -->
+            <div class="panel">
+                <div class="panel-title">⚡ Actual Result vs Spike Predictor</div>
+                <div class="chart-container">
+                    <canvas id="spike-predictor-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Chart 4: Multiplier Time Series -->
+            <div class="panel">
+                <div class="panel-title">📉 Multiplier Time Series (Spike Detection)</div>
+                <div class="chart-container">
+                    <canvas id="multiplier-timeseries-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+
+        // Update timestamp
+        setInterval(() => {
+            document.getElementById('timestamp').textContent =
+                new Date().toLocaleTimeString('en-US', {hour12: false});
+        }, 1000);
+
+        // Data storage
+        let roundData = [];
+        let ensembleData = [];
+        let modelsPredictions = { rf: [], gb: [], lgb: [] };
+        let spikeData = [];
+        let timeSeriesData = [];
+
+        // Chart configurations
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: { color: '#fff', font: { size: 11 } }
+                }
+            },
+            scales: {
+                x: { ticks: { color: '#fff', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.1)' } },
+                y: { ticks: { color: '#fff', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.1)' } }
+            }
+        };
+
+        // Chart 1: Ensemble vs Actual
+        const ensembleChart = new Chart(document.getElementById('ensemble-vs-actual-chart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Ensemble Prediction',
+                        data: [],
+                        borderColor: '#60a5fa',
+                        backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                        tension: 0.4,
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'Actual Multiplier',
+                        data: [],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.4,
+                        borderWidth: 2
+                    }
+                ]
+            },
+            options: commonOptions
+        });
+
+        // Chart 2: 3 Models vs Actual
+        const modelsChart = new Chart(document.getElementById('models-vs-actual-chart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Random Forest',
+                        data: [],
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                        tension: 0.4,
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'Gradient Boosting',
+                        data: [],
+                        borderColor: '#ec4899',
+                        backgroundColor: 'rgba(236, 72, 153, 0.1)',
+                        tension: 0.4,
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'LightGBM',
+                        data: [],
+                        borderColor: '#8b5cf6',
+                        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                        tension: 0.4,
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'Actual',
+                        data: [],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.4,
+                        borderWidth: 3
+                    }
+                ]
+            },
+            options: commonOptions
+        });
+
+        // Chart 3: Spike Predictor
+        const spikeChart = new Chart(document.getElementById('spike-predictor-chart'), {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Actual Multiplier',
+                        data: [],
+                        backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                        borderColor: '#10b981',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Spike Predicted',
+                        data: [],
+                        backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                        borderColor: '#ef4444',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                ...commonOptions,
+                plugins: {
+                    ...commonOptions.plugins,
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) label += ': ';
+                                if (context.parsed.y !== null) {
+                                    label += context.parsed.y.toFixed(2) + 'x';
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Chart 4: Multiplier Time Series
+        const timeSeriesChart = new Chart(document.getElementById('multiplier-timeseries-chart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Multiplier',
+                        data: [],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                        tension: 0.1,
+                        borderWidth: 2,
+                        fill: true,
+                        pointBackgroundColor: function(context) {
+                            const value = context.parsed.y;
+                            return value >= 10 ? '#ef4444' : '#10b981';
+                        },
+                        pointRadius: function(context) {
+                            const value = context.parsed.y;
+                            return value >= 10 ? 5 : 2;
+                        },
+                        segment: {
+                            borderColor: function(context) {
+                                const value = context.p1.parsed.y;
+                                return value >= 10 ? '#ef4444' : '#10b981';
+                            }
+                        }
+                    }
+                ]
+            },
+            options: {
+                ...commonOptions,
+                plugins: {
+                    ...commonOptions.plugins,
+                    annotation: {
+                        annotations: {
+                            line1: {
+                                type: 'line',
+                                yMin: 10,
+                                yMax: 10,
+                                borderColor: '#ef4444',
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                label: {
+                                    content: 'Spike Threshold (10x)',
+                                    enabled: true,
+                                    position: 'end'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Update metrics
+        function updateMetrics(stats) {
+            document.getElementById('total-rounds').textContent = stats.rounds_played || 0;
+            document.getElementById('success-cashouts').textContent = stats.successful_cashouts || 0;
+            document.getElementById('failed-rounds').textContent = stats.failed_cashouts || 0;
+
+            const winRate = stats.ml_bets_placed > 0
+                ? ((stats.successful_cashouts / stats.ml_bets_placed) * 100).toFixed(1)
+                : 0;
+            document.getElementById('win-rate').textContent = winRate + '%';
+
+            const profit = (stats.total_return || 0) - (stats.total_bet || 0);
+            const profitEl = document.getElementById('profit-loss');
+            profitEl.textContent = (profit >= 0 ? '+' : '') + profit.toFixed(2);
+            profitEl.className = profit > 0 ? 'metric-value' : profit < 0 ? 'metric-value negative' : 'metric-value neutral';
+        }
+
+        // Update highest in last hour
+        function updateHighest1h() {
+            const oneHourAgo = Date.now() - (60 * 60 * 1000);
+            const recentRounds = roundData.filter(r => new Date(r.timestamp).getTime() > oneHourAgo);
+            const highest = recentRounds.length > 0
+                ? Math.max(...recentRounds.map(r => r.multiplier))
+                : 0;
+            document.getElementById('highest-1h').textContent = highest.toFixed(2) + 'x';
+        }
+
+        // Update charts with new round
+        function updateCharts(data) {
+            const maxPoints = 30;
+            const label = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+
+            // Store round data
+            roundData.push(data);
+            if (roundData.length > 100) roundData.shift();
+
+            // Update Chart 1 & 2
+            if (data.prediction) {
+                ensembleChart.data.labels.push(label);
+                ensembleChart.data.datasets[0].data.push(data.prediction);
+                ensembleChart.data.datasets[1].data.push(data.multiplier);
+
+                if (ensembleChart.data.labels.length > maxPoints) {
+                    ensembleChart.data.labels.shift();
+                    ensembleChart.data.datasets.forEach(ds => ds.data.shift());
+                }
+                ensembleChart.update('none');
+
+                // Update models chart
+                if (data.models) {
+                    modelsChart.data.labels.push(label);
+                    modelsChart.data.datasets[0].data.push(data.models.rf || 0);
+                    modelsChart.data.datasets[1].data.push(data.models.gb || 0);
+                    modelsChart.data.datasets[2].data.push(data.models.lgb || 0);
+                    modelsChart.data.datasets[3].data.push(data.multiplier);
+
+                    if (modelsChart.data.labels.length > maxPoints) {
+                        modelsChart.data.labels.shift();
+                        modelsChart.data.datasets.forEach(ds => ds.data.shift());
+                    }
+                    modelsChart.update('none');
+                }
+            }
+
+            // Update spike charts
+            const isSpike = data.multiplier >= 10;
+            spikeChart.data.labels.push(label);
+            spikeChart.data.datasets[0].data.push(data.multiplier);
+            spikeChart.data.datasets[1].data.push(isSpike ? data.multiplier : 0);
+
+            if (spikeChart.data.labels.length > maxPoints) {
+                spikeChart.data.labels.shift();
+                spikeChart.data.datasets.forEach(ds => ds.data.shift());
+            }
+            spikeChart.update('none');
+
+            // Update time series
+            timeSeriesChart.data.labels.push(label);
+            timeSeriesChart.data.datasets[0].data.push(data.multiplier);
+
+            if (timeSeriesChart.data.labels.length > maxPoints) {
+                timeSeriesChart.data.labels.shift();
+                timeSeriesChart.data.datasets[0].data.shift();
+            }
+            timeSeriesChart.update('none');
+
+            updateHighest1h();
+        }
+
+        // Socket listeners
+        socket.on('round_update', (data) => {
+            updateMetrics(data.stats || {});
+            updateCharts(data);
+        });
+
+        socket.on('stats_update', (data) => {
+            updateMetrics(data.stats || {});
+        });
+
+        // Initial load
+        fetch('/api/stats')
+            .then(r => r.json())
+            .then(data => {
+                updateMetrics(data.stats || {});
+                if (data.history) {
+                    data.history.slice(-30).forEach(round => updateCharts(round));
+                }
+            });
+    </script>
+</body>
+</html>

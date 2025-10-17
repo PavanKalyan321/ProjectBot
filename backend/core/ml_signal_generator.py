@@ -31,9 +31,12 @@ class MLSignalGenerator:
             print("   Run 'python train_models.py' to train models on historical data")
             print("   Using placeholder predictions until models are trained\n")
 
-    def generate_ensemble_signal(self):
+    def generate_ensemble_signal(self, strategy='hybrid'):
         """
-        Generate ensemble betting signal using trained ML models.
+        Generate betting signal using hybrid or regression strategy.
+
+        Args:
+            strategy: 'hybrid' (green classifier + Position2) or 'regression' (old method)
 
         Returns:
             dict: Signal dictionary with keys:
@@ -43,10 +46,9 @@ class MLSignalGenerator:
                 - range: tuple (low, high)
                 - reason: str
                 - log: str
-                - models: list of dicts with keys:
-                    - model_id: str
-                    - prediction: float
-                    - confidence: float
+                - models: list of dicts
+                - strategy: str (which position/strategy was used)
+                - target_multiplier: float (for hybrid mode)
         """
         recent_rounds = self.history_tracker.get_recent_rounds(self.feature_window + 10)
 
@@ -58,12 +60,178 @@ class MLSignalGenerator:
                 'range': (0, 0),
                 'reason': f'Need {self.feature_window} rounds, have {len(recent_rounds)}',
                 'log': 'Insufficient data for signal generation.',
-                'models': []
+                'models': [],
+                'strategy': 'none',
+                'target_multiplier': 0
             }
 
         # Get recent multipliers
         recent_multipliers = recent_rounds['multiplier'].values.tolist()
 
+        if strategy == 'hybrid':
+            return self._generate_hybrid_signal(recent_multipliers)
+        else:
+            return self._generate_regression_signal(recent_multipliers)
+
+    def _generate_hybrid_signal(self, recent_multipliers):
+        """
+        HYBRID STRATEGY:
+        - Position 1 (conservative): Use ML green classifier for 1.5x-2x targets
+        - Position 2 (aggressive): Use rule-based logic for 3x+ targets
+
+        Args:
+            recent_multipliers: List of recent multipliers
+
+        Returns:
+            dict: Signal with position-specific recommendations
+        """
+        # Try Position 1 first (ML Green Classifier for 1.5x or 2x)
+        pos1_signal_15 = self.ml_models.predict_green_probability(recent_multipliers, target_multiplier=1.5)
+        pos1_signal_20 = self.ml_models.predict_green_probability(recent_multipliers, target_multiplier=2.0)
+
+        # Try Position 2 (Rule-based for 3x+)
+        pos2_signal = self._generate_position2_signal(recent_multipliers)
+
+        # Decision priority:
+        # 1. If Position 1 (1.5x) has high confidence -> use it (safest)
+        # 2. Else if Position 2 has signal -> use it (aggressive)
+        # 3. Else skip
+
+        # Position 1 evaluation (prefer 1.5x for safety, fallback to 2x)
+        use_pos1 = False
+        pos1_target = 1.5
+        pos1_confidence = pos1_signal_15['confidence']
+
+        if pos1_signal_15['recommendation'] == 'BET' and pos1_confidence >= 55:
+            use_pos1 = True
+            pos1_target = 1.5
+            pos1_green_prob = pos1_signal_15['green_probability']
+        elif pos1_signal_20['recommendation'] == 'BET' and pos1_signal_20['confidence'] >= 50:
+            use_pos1 = True
+            pos1_target = 2.0
+            pos1_confidence = pos1_signal_20['confidence']
+            pos1_green_prob = pos1_signal_20['green_probability']
+
+        # Decision logic
+        if use_pos1:
+            # USE POSITION 1 (ML Green Classifier)
+            return {
+                'should_bet': True,
+                'confidence': pos1_confidence,
+                'prediction': pos1_target,
+                'range': (pos1_target - 0.2, pos1_target + 0.2),
+                'reason': f"Position 1: {pos1_green_prob:.1f}% chance of hitting {pos1_target}x",
+                'log': f"Strategy: Position 1 (ML Green Classifier)\n"
+                       f"Target: {pos1_target}x\n"
+                       f"Green Probability: {pos1_green_prob:.1f}%\n"
+                       f"Model Confidence: {pos1_confidence:.1f}%\n"
+                       f"Model Accuracy: {pos1_signal_15['accuracy']:.1f}% (historical)",
+                'models': [],  # Not using regression models
+                'strategy': 'position1_green_classifier',
+                'target_multiplier': pos1_target,
+                'green_probability': pos1_green_prob,
+                'classifier_accuracy': pos1_signal_15.get('accuracy', 0)
+            }
+
+        elif pos2_signal['should_bet']:
+            # USE POSITION 2 (Rule-based for high multipliers)
+            return pos2_signal
+
+        else:
+            # SKIP - No position recommends betting
+            return {
+                'should_bet': False,
+                'confidence': max(pos1_confidence, pos2_signal['confidence']),
+                'prediction': 0,
+                'range': (0, 0),
+                'reason': f"Position 1: {pos1_confidence:.1f}% (need 55%), Position 2: {pos2_signal['reason']}",
+                'log': f"Position 1 (1.5x): {pos1_signal_15['green_probability']:.1f}% green prob, {pos1_signal_15['confidence']:.1f}% confidence\n"
+                       f"Position 1 (2.0x): {pos1_signal_20['green_probability']:.1f}% green prob, {pos1_signal_20['confidence']:.1f}% confidence\n"
+                       f"Position 2 (3x+): {pos2_signal['reason']}",
+                'models': [],
+                'strategy': 'skip',
+                'target_multiplier': 0
+            }
+
+    def _generate_position2_signal(self, recent_multipliers):
+        """
+        Position 2 Rule-Based Strategy for high multipliers (3x+).
+        Based on burst patterns and cold streaks.
+
+        Args:
+            recent_multipliers: List of recent multipliers
+
+        Returns:
+            dict: Position 2 signal
+        """
+        # Simple rule-based logic for Position 2
+        # Look for "cold streak" (many low rounds) suggesting high round is due
+        last_10 = recent_multipliers[-10:]
+        low_count = sum(1 for m in last_10 if m < 2.0)
+        high_count = sum(1 for m in last_10 if m >= 3.0)
+
+        # Check if there's been a burst pattern
+        has_recent_high = any(m >= 5.0 for m in last_10)
+
+        # Position 2 rules:
+        # 1. If 7+ low rounds in last 10 -> bet on 3x (due for high)
+        # 2. If recent high exists -> skip (burst already happened)
+
+        if has_recent_high:
+            return {
+                'should_bet': False,
+                'confidence': 30,
+                'prediction': 0,
+                'range': (0, 0),
+                'reason': f"Position 2: Recent burst detected, waiting",
+                'log': f"Position 2: Burst pattern detected in last 10 rounds",
+                'models': [],
+                'strategy': 'position2_skip',
+                'target_multiplier': 0
+            }
+
+        if low_count >= 7:
+            # Cold streak - bet on 3x
+            confidence = min(70, 40 + (low_count * 5))  # Higher confidence for longer streak
+            return {
+                'should_bet': True,
+                'confidence': confidence,
+                'prediction': 3.0,
+                'range': (2.5, 5.0),
+                'reason': f"Position 2: Cold streak ({low_count}/10 low rounds)",
+                'log': f"Strategy: Position 2 (Rule-based)\n"
+                       f"Target: 3.0x\n"
+                       f"Cold Streak: {low_count}/10 rounds below 2x\n"
+                       f"Pattern: Expecting higher multiplier",
+                'models': [],
+                'strategy': 'position2_cold_streak',
+                'target_multiplier': 3.0,
+                'cold_streak_length': low_count
+            }
+
+        # Not enough signal for Position 2
+        return {
+            'should_bet': False,
+            'confidence': 35,
+            'prediction': 0,
+            'range': (0, 0),
+            'reason': f"Position 2: Pattern not strong enough ({low_count}/10 low)",
+            'log': f"Position 2: Cold streak {low_count}/10 (need 7+)",
+            'models': [],
+            'strategy': 'position2_skip',
+            'target_multiplier': 0
+        }
+
+    def _generate_regression_signal(self, recent_multipliers):
+        """
+        Original regression-based signal generation (old method).
+
+        Args:
+            recent_multipliers: List of recent multipliers
+
+        Returns:
+            dict: Regression signal
+        """
         # Get predictions from trained models
         model_outputs = self.ml_models.predict(recent_multipliers)
 
@@ -75,7 +243,9 @@ class MLSignalGenerator:
                 'range': (0, 0),
                 'reason': 'Model prediction failed',
                 'log': 'Unable to generate predictions.',
-                'models': []
+                'models': [],
+                'strategy': 'regression_failed',
+                'target_multiplier': 0
             }
 
         # Ensemble metrics
@@ -99,16 +269,13 @@ class MLSignalGenerator:
         should_bet = ensemble_conf >= self.confidence_threshold
 
         # Adjust confidence based on prediction agreement
-        # If models agree (low std), boost confidence
         if pred_std < 0.3:
-            ensemble_conf *= 1.1  # 10% boost for high agreement
+            ensemble_conf *= 1.1
         elif pred_std > 1.0:
-            ensemble_conf *= 0.9  # 10% penalty for disagreement
+            ensemble_conf *= 0.9
 
-        # Cap confidence at 95%
         ensemble_conf = min(95.0, ensemble_conf)
 
-        # Log summary
         log_lines = [
             f"{m['model_id']}: pred={m['prediction']:.2f}x, conf={m['confidence']:.1f}%"
             for m in model_outputs
@@ -130,7 +297,9 @@ class MLSignalGenerator:
             'log': "\n".join(log_lines + [log_summary]),
             'models': model_outputs,
             'expected_value': expected_value,
-            'agreement': round(pred_std, 2)
+            'agreement': round(pred_std, 2),
+            'strategy': 'regression',
+            'target_multiplier': round(ensemble_pred, 2)
         }
 
     def analyze_recent_patterns(self, n_rounds=10):

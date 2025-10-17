@@ -67,6 +67,10 @@ class AviatorBotML:
             "current_streak": 0,
             "max_stake_reached": 25
         }
+
+        # Prediction history (track last N predictions)
+        from collections import deque
+        self.prediction_history = deque(maxlen=5)
     
     def initialize_components(self):
         """Initialize all bot components after config is loaded."""
@@ -234,7 +238,13 @@ class AviatorBotML:
         predictions = signal['models']
         if not predictions:
             return
-        
+
+        # Store prediction for history
+        self.prediction_history.append({
+            'ensemble': signal.get('prediction', 0),
+            'confidence': signal.get('confidence', 0)
+        })
+
         print("\n  🤖 MODEL PREDICTIONS:")
         print("  ┌──────────────────┬──────────┬────────────┐")
         print("  │      MODEL       │   PRED   │ CONFIDENCE │")
@@ -271,6 +281,23 @@ class AviatorBotML:
         if 'agreement' in signal:
             agreement_status = "HIGH" if signal['agreement'] < 0.5 else "MEDIUM" if signal['agreement'] < 1.0 else "LOW"
             print(f"  Model Agreement: {agreement_status} (σ={signal['agreement']:.2f})")
+
+        # Show prediction trend (how predictions evolved)
+        if len(self.prediction_history) >= 2:
+            print(f"\n  📈 PREDICTION TREND (Last {len(self.prediction_history)} rounds):")
+            trend_line = "  "
+            for i, pred_hist in enumerate(self.prediction_history):
+                trend_line += f"[{pred_hist['ensemble']:.2f}x] "
+                if i < len(self.prediction_history) - 1:
+                    # Show trend arrow
+                    next_pred = list(self.prediction_history)[i+1]['ensemble']
+                    if next_pred > pred_hist['ensemble']:
+                        trend_line += "↗ "
+                    elif next_pred < pred_hist['ensemble']:
+                        trend_line += "↘ "
+                    else:
+                        trend_line += "→ "
+            print(trend_line)
     
     def _show_cashout_progress(self, elapsed, target_time):
         """Show enhanced cashout progress with visual indicator."""
@@ -372,9 +399,22 @@ class AviatorBotML:
         
         print(f"{'─'*100}")
     
-    def _create_round_data(self, multiplier, bet_placed, stake, cashout_time, 
+    def _create_round_data(self, multiplier, bet_placed, stake, cashout_time,
                           profit_loss, signal, cumulative_profit, balance=None):
         """Create round data dictionary for dashboard."""
+        # Extract individual model predictions
+        models_data = {'rf': 0, 'gb': 0, 'lgb': 0}
+        if signal and 'models' in signal:
+            for model in signal['models']:
+                model_id = model.get('model_id', '')
+                prediction = model.get('prediction', 0)
+                if 'Random' in model_id:
+                    models_data['rf'] = prediction
+                elif 'Gradient' in model_id:
+                    models_data['gb'] = prediction
+                elif 'LightGBM' in model_id:
+                    models_data['lgb'] = prediction
+
         return {
             'timestamp': datetime.now().isoformat(),
             'multiplier': multiplier,
@@ -384,6 +424,7 @@ class AviatorBotML:
             'profit_loss': profit_loss,
             'prediction': signal.get('prediction', 0) if signal else 0,
             'confidence': signal.get('confidence', 0) if signal else 0,
+            'models': models_data,
             'cumulative_profit': cumulative_profit,
             'balance': balance,
             'stats': self.stats.copy(),
@@ -395,6 +436,95 @@ class AviatorBotML:
         if self.dashboard:
             self.dashboard.emit_round_update(round_data)
     
+    def run_observation_mode(self):
+        """Observation mode - collect data without placing bets."""
+        print("\n" + "="*100)
+        print("📊 AVIATOR BOT - OBSERVATION MODE (DATA COLLECTION)")
+        print("="*100)
+        print("🔍 Bot will observe rounds and collect data without placing bets")
+        print("💾 Data will be saved to aviator_rounds_history.csv for model training")
+        print("="*100)
+
+        round_number = 0
+        history_read_for_round = False
+
+        try:
+            while True:
+                round_number += 1
+                self._log_round_header(round_number)
+
+                # STEP 1: Wait for clean AWAITING state
+                flush_print("  ⏳ Waiting for AWAITING state...")
+                if not self.detector.wait_for_clean_awaiting_state(timeout=60):
+                    flush_print("  ⚠️  Timeout - retrying...")
+                    continue
+
+                flush_print("  ✅ AWAITING confirmed")
+                time.sleep(0.3)
+
+                # STEP 2: Read previous round multiplier and log it
+                if not history_read_for_round:
+                    flush_print("  📝 Checking for previous round...")
+
+                    success, logged_mult = self.history_tracker.auto_log_from_clipboard(
+                        self.detector,
+                        force=False,
+                        log_to_history=True  # Log observed rounds
+                    )
+
+                    if success and logged_mult and logged_mult != self.last_logged_mult:
+                        self.last_logged_mult = logged_mult
+                        flush_print(f"  ✅ Round observed: {logged_mult:.2f}x (saved to history)")
+                        self.stats["rounds_observed"] += 1
+                    else:
+                        flush_print("  ℹ️  No new round data")
+
+                    history_read_for_round = True
+
+                time.sleep(0.2)
+
+                # STEP 3: Generate predictions (for display only, no betting)
+                print("\n  🤖 Generating predictions (no bet will be placed)...")
+                signal = self.ml_generator.generate_ensemble_signal()
+
+                print(f"\n  📊 OBSERVATION ONLY - No bet placed")
+                print(f"  🎯 Model would predict: {signal['prediction']:.2f}x")
+                print(f"  📈 Confidence: {signal['confidence']:.1f}%")
+                print(f"  🎲 Decision would be: {'BET' if signal['should_bet'] else 'SKIP'}")
+
+                # Optionally show full model predictions
+                if signal['should_bet']:
+                    self._show_model_predictions(signal)
+
+                # Wait for current round to complete
+                print("\n  ⏳ Waiting for current round to complete...")
+                success, observed_mult = self._wait_for_crash_and_read_multiplier(timeout=60, log_to_history=True)
+
+                if success and observed_mult:
+                    print(f"  ✅ Round complete: {observed_mult:.2f}x")
+                    self.stats["rounds_observed"] += 1
+                else:
+                    print("  ⚠️  Could not read round result")
+
+                history_read_for_round = False
+
+                # Show observation stats
+                if round_number % 10 == 0:
+                    print(f"\n  📈 Progress: {self.stats['rounds_observed']} rounds collected")
+                    print(f"  💾 Data saved to: aviator_rounds_history.csv")
+
+                time.sleep(0.5)
+
+        except KeyboardInterrupt:
+            print("\n\n⏹️  Observation stopped by user")
+            print(f"\n📊 Total rounds observed: {self.stats['rounds_observed']}")
+            print(f"💾 Data saved to: aviator_rounds_history.csv")
+            print(f"\nYou can now train models with: python train_models.py")
+        except Exception as e:
+            print(f"\n\n❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+
     def run_ml_mode(self):
         """Main betting loop with enhanced logging."""
         print("\n" + "="*100)
@@ -445,30 +575,29 @@ class AviatorBotML:
                     history_read_for_round = False
                     continue
                 
-                # STEP 3: Read previous round multiplier ONLY ONCE per actual round
+                # STEP 3: Read previous round multiplier and update history in real-time
                 if not history_read_for_round:
                     flush_print("  📝 Checking for previous round...")
-                    
-                    # Only try to read if we just entered AWAITING (new round started)
-                    # Don't create a new round entry, just read the last game's multiplier
+
+                    # Read from clipboard and immediately add to history for real-time predictions
                     success, logged_mult = self.history_tracker.auto_log_from_clipboard(
-                        self.detector, 
+                        self.detector,
                         force=False,
-                        log_to_history=False  # CRITICAL: Don't add to history yet!
+                        log_to_history=True  # ✅ Log immediately so models use latest data!
                     )
-                    
+
                     if success and logged_mult and logged_mult != self.last_logged_mult:
                         self.last_logged_mult = logged_mult
-                        flush_print(f"  ✅ Previous round: {logged_mult:.2f}x")
+                        flush_print(f"  ✅ Previous round: {logged_mult:.2f}x (added to history)")
                     else:
                         flush_print("  ℹ️  No new round data")
-                    
+
                     history_read_for_round = True
-                
+
                 time.sleep(0.2)
-                
-                # STEP 4: Generate ML signal
-                print("\n  🤖 Analyzing patterns...")
+
+                # STEP 4: Generate ML signal with LATEST data (includes the round we just read)
+                print("\n  🤖 Analyzing patterns with latest round data...")
                 signal = self.ml_generator.generate_ensemble_signal()
                 
                 if signal['should_bet']:
@@ -845,21 +974,22 @@ class AviatorBotML:
 def main():
     """Main entry point."""
     print("="*100)
-    print("✈️  AVIATOR BOT - ML MODE WITH ENHANCED LOGGING")
+    print("AVIATOR BOT - ML MODE WITH ENHANCED LOGGING")
     print("="*100)
-    print("\n🎯 Features:")
-    print("  ✓ Manual history input for better predictions")
-    print("  ✓ Individual model predictions (LSTM, Random Forest, XGBoost, LightGBM)")
-    print("  ✓ Enhanced cashout progress indicator")
-    print("  ✓ Detailed round-by-round logging")
-    print("  ✓ Real-time balance tracking")
+    print("\nFeatures:")
+    print("  [OK] Manual history input for better predictions")
+    print("  [OK] Individual model predictions (LSTM, Random Forest, XGBoost, LightGBM)")
+    print("  [OK] Enhanced cashout progress indicator")
+    print("  [OK] Detailed round-by-round logging")
+    print("  [OK] Real-time balance tracking")
+    print("  [OK] Time-weighted ML training (recent data prioritized)")
     print("="*100)
 
     bot = AviatorBotML()
 
     # Load or setup configuration
     if bot.config_manager.load_config() and bot.config_manager.multiplier_region:
-        print(f"\n✓ Config loaded")
+        print(f"\n[OK] Config loaded")
         print("\nOptions:")
         print("  1. Use existing config")
         print("  2. New setup")
@@ -878,12 +1008,12 @@ def main():
     rounds_loaded = integrate_manual_history_with_bot(bot)
     
     if rounds_loaded > 0:
-        print(f"\n✅ {rounds_loaded} historical rounds loaded")
-        print("🤖 ML models will make better predictions with this data")
+        print(f"\n[OK] {rounds_loaded} historical rounds loaded")
+        print("[OK] ML models will make better predictions with this data")
 
     # Configure parameters
     print("\n" + "="*100)
-    print("⚙️  PARAMETERS")
+    print("PARAMETERS")
     print("="*100)
     
     initial = input(f"\nInitial stake (default {bot.config_manager.initial_stake}): ").strip()
@@ -923,17 +1053,39 @@ def main():
     # Start dashboard (optional)
     start_dash = input("\nStart web dashboard? (y/n, default: n): ").strip().lower()
     if start_dash == 'y':
-        print("\n🌐 Starting dashboard...")
+        print("\nStarting dashboard...")
         bot.dashboard = AviatorDashboard(bot, port=5000)
         bot.dashboard.start()
-        print("✅ Dashboard: http://localhost:5000")
-    
+        print("[OK] Dashboard: http://localhost:5000")
+
+    # Ask user about betting mode
+    print("\n" + "="*100)
+    print("OPERATING MODE")
+    print("="*100)
+    print("\nChoose mode:")
+    print("  1. BETTING MODE - Place bets based on ML predictions")
+    print("  2. OBSERVATION MODE - Collect data without betting (build history for training)")
+    print("\nNote: Models need at least 20 rounds of data before they can make predictions.")
+
+    mode_choice = input("\nChoice (1/2, default: 1): ").strip()
+
+    if mode_choice == '2':
+        observation_mode = True
+        print("\n📊 OBSERVATION MODE - Bot will only collect data, no bets will be placed")
+    else:
+        observation_mode = False
+        print("\n💰 BETTING MODE - Bot will place bets based on ML predictions")
+
     print("\nPress Enter to start...")
     input()
-    
+
     # Save config and run
     bot.config_manager.save_config()
-    bot.run_ml_mode()
+
+    if observation_mode:
+        bot.run_observation_mode()
+    else:
+        bot.run_ml_mode()
 
 
 if __name__ == "__main__":
