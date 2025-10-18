@@ -173,6 +173,85 @@ class AviatorMLModels:
             entropy = -np.sum(hist * np.log2(hist))
             feature_vector.append(entropy)
 
+            # NEW FEATURES FOR IMPROVED ACCURACY
+
+            # Feature 38-39: Skewness and Kurtosis (distribution shape)
+            from scipy.stats import skew, kurtosis
+            feature_vector.append(skew(sequence))
+            feature_vector.append(kurtosis(sequence))
+
+            # Feature 40-41: Moving averages (different horizons)
+            ma_5 = np.mean(sequence[-5:]) if len(sequence) >= 5 else np.mean(sequence)
+            ma_10 = np.mean(sequence[-10:]) if len(sequence) >= 10 else np.mean(sequence)
+            feature_vector.append(ma_5)
+            feature_vector.append(ma_10)
+
+            # Feature 42: MA crossover (5 vs 10)
+            feature_vector.append(ma_5 - ma_10)
+
+            # Feature 43: IQR (interquartile range)
+            q25, q75 = np.percentile(sequence, [25, 75])
+            iqr = q75 - q25
+            feature_vector.append(iqr)
+
+            # Feature 44: Coefficient of variation (normalized volatility)
+            cv = np.std(sequence) / np.mean(sequence) if np.mean(sequence) > 0 else 0
+            feature_vector.append(cv)
+
+            # Feature 45: Rounds since last 5x multiplier
+            rounds_since_5x = 0
+            for j in range(len(sequence)-1, -1, -1):
+                if sequence[j] >= 5.0:
+                    rounds_since_5x = len(sequence) - 1 - j
+                    break
+            if rounds_since_5x == 0:
+                rounds_since_5x = self.sequence_length
+            feature_vector.append(rounds_since_5x)
+
+            # Feature 46: Rounds since last 3x multiplier
+            rounds_since_3x = 0
+            for j in range(len(sequence)-1, -1, -1):
+                if sequence[j] >= 3.0:
+                    rounds_since_3x = len(sequence) - 1 - j
+                    break
+            if rounds_since_3x == 0:
+                rounds_since_3x = self.sequence_length
+            feature_vector.append(rounds_since_3x)
+
+            # Feature 47: Current low streak length
+            current_low_streak = 0
+            for j in range(len(sequence)-1, -1, -1):
+                if sequence[j] < 2.0:
+                    current_low_streak += 1
+                else:
+                    break
+            feature_vector.append(current_low_streak)
+
+            # Feature 48: Max low streak in window
+            max_low_streak = 0
+            temp_streak = 0
+            for val in sequence:
+                if val < 2.0:
+                    temp_streak += 1
+                    max_low_streak = max(max_low_streak, temp_streak)
+                else:
+                    temp_streak = 0
+            feature_vector.append(max_low_streak)
+
+            # Feature 49: Alternating pattern score (high-low-high-low)
+            alternations = 0
+            for j in range(1, len(sequence)):
+                if (sequence[j] >= 2.0 and sequence[j-1] < 2.0) or \
+                   (sequence[j] < 2.0 and sequence[j-1] >= 2.0):
+                    alternations += 1
+            feature_vector.append(alternations)
+
+            # Feature 50: Ratio of highs to lows
+            high_count_3x = np.sum(sequence >= 3.0)
+            low_count_15x = np.sum(sequence < 1.5)
+            ratio = high_count_3x / (low_count_15x + 1)  # +1 to avoid division by zero
+            feature_vector.append(ratio)
+
             features.append(feature_vector)
             targets.append(multipliers[i + self.sequence_length])
 
@@ -185,6 +264,13 @@ class AviatorMLModels:
         if sample_weights is not None:
             sample_weights = np.array(sample_weights)
 
+        # Handle NaN values (replace with column mean)
+        nan_mask = np.isnan(X)
+        if np.any(nan_mask):
+            col_mean = np.nanmean(X, axis=0)
+            inds = np.where(nan_mask)
+            X[inds] = np.take(col_mean, inds[1])
+
         # Store feature names for reference
         if not self.feature_names:
             self.feature_names = (
@@ -192,7 +278,10 @@ class AviatorMLModels:
                 ['mean', 'std', 'max', 'min', 'median',
                  'recent_avg', 'older_avg', 'trend',
                  'low_count', 'high_count', 'volatility', 'increasing_streak',
-                 'time_since_high', 'p25', 'p50', 'p75', 'entropy']
+                 'time_since_high', 'p25', 'p50', 'p75', 'entropy',
+                 'skewness', 'kurtosis', 'ma_5', 'ma_10', 'ma_crossover',
+                 'iqr', 'coef_variation', 'rounds_since_5x', 'rounds_since_3x',
+                 'current_low_streak', 'max_low_streak', 'alternations', 'high_low_ratio']
             )
 
         return X, y, sample_weights
@@ -458,6 +547,21 @@ class AviatorMLModels:
             print(f"  Training set: {train_positive} green / {train_negative} red ({train_positive/len(y_train_binary)*100:.1f}% green)")
             print(f"  Test set: {test_positive} green / {len(y_test_binary)-test_positive} red")
 
+            # Apply SMOTE if classes are imbalanced (ratio > 1.5)
+            imbalance_ratio = max(train_positive, train_negative) / min(train_positive, train_negative)
+            X_train_balanced = X_train
+            y_train_balanced = y_train_binary
+
+            if imbalance_ratio > 1.5:
+                try:
+                    from imblearn.over_sampling import SMOTE
+                    smote = SMOTE(random_state=42)
+                    X_train_balanced, y_train_balanced = smote.fit_resample(X_train, y_train_binary)
+                    print(f"  [SMOTE] Balanced dataset: {len(X_train_balanced)} samples (from {len(X_train)})")
+                    print(f"  [SMOTE] New green/red: {np.sum(y_train_balanced)} / {len(y_train_balanced) - np.sum(y_train_balanced)}")
+                except Exception as e:
+                    print(f"  [WARNING] SMOTE failed: {e}, using original data")
+
             # Train classifier
             clf = RandomForestClassifier(
                 n_estimators=100,
@@ -468,7 +572,12 @@ class AviatorMLModels:
                 n_jobs=-1,
                 class_weight='balanced'  # Handle imbalanced classes
             )
-            clf.fit(X_train, y_train_binary, sample_weight=w_train)
+
+            # Note: SMOTE doesn't preserve sample weights, so we skip them after SMOTE
+            if X_train_balanced is X_train:
+                clf.fit(X_train_balanced, y_train_balanced, sample_weight=w_train)
+            else:
+                clf.fit(X_train_balanced, y_train_balanced)
 
             # Evaluate
             y_pred = clf.predict(X_test)
@@ -640,8 +749,17 @@ class AviatorMLModels:
         accuracy = scores.get('accuracy', 0) * 100
         precision = scores.get('precision', 0) * 100
 
-        # Calculate confidence based on model performance
-        confidence = (accuracy + precision) / 2
+        # Calculate confidence based on:
+        # 1. How certain the model is (distance from 50% - the closer to 0% or 100%, the more confident)
+        # 2. Historical model accuracy (how reliable the model has been)
+
+        # Prediction certainty: 0% or 100% = very confident, 50% = no idea
+        # Map to 0-100 scale where 50% probability = 0 confidence, 100%/0% = 100 confidence
+        prediction_certainty = abs(green_proba - 50) * 2  # Maps 50->0, 100->100, 0->100
+
+        # Weight: 70% from prediction certainty, 30% from historical accuracy
+        # This makes confidence vary per prediction while still considering model reliability
+        confidence = (prediction_certainty * 0.7) + (accuracy * 0.3)
 
         # Make recommendation
         # Only recommend BET if green_probability > 55% and confidence > 50%

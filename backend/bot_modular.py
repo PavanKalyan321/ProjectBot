@@ -186,13 +186,12 @@ class AviatorBotML:
         
         return False
     
-    def _wait_for_crash_and_read_multiplier(self, timeout=60, log_to_history=False):
+    def _wait_for_crash_and_read_multiplier(self, timeout=60):
         """
         Wait for round to crash and read the final multiplier.
 
         Args:
             timeout: Maximum time to wait for crash
-            log_to_history: If True, log to CSV; if False, just read the value
 
         Returns:
             Tuple (success, multiplier)
@@ -203,11 +202,10 @@ class AviatorBotML:
             if self.detector.has_game_crashed() or self.detector.is_awaiting_next_flight():
                 time.sleep(0.3)
 
-                # Read multiplier WITHOUT logging to history (we'll log it properly later with all bet info)
+                # Read multiplier from clipboard
                 success, mult = self.history_tracker.auto_log_from_clipboard(
                     self.detector,
-                    force=True,
-                    log_to_history=log_to_history  # Control whether we log or just read
+                    force=True
                 )
 
                 if success and mult:
@@ -468,8 +466,7 @@ class AviatorBotML:
 
                     success, logged_mult = self.history_tracker.auto_log_from_clipboard(
                         self.detector,
-                        force=False,
-                        log_to_history=True  # Log observed rounds
+                        force=False
                     )
 
                     if success and logged_mult and logged_mult != self.last_logged_mult:
@@ -498,7 +495,7 @@ class AviatorBotML:
 
                 # Wait for current round to complete
                 print("\n  ⏳ Waiting for current round to complete...")
-                success, observed_mult = self._wait_for_crash_and_read_multiplier(timeout=60, log_to_history=True)
+                success, observed_mult = self._wait_for_crash_and_read_multiplier(timeout=60)
 
                 if success and observed_mult:
                     print(f"  ✅ Round complete: {observed_mult:.2f}x")
@@ -565,7 +562,16 @@ class AviatorBotML:
                     self._log_round_result(round_number, "BET", self.current_stake, "CANCEL", 
                                           loss, 0, None, self.last_balance, cumulative_profit)
                     
-                    self.history_tracker.log_round(0, True, self.current_stake, 0, loss, 0, 0, 'orphaned')
+                    self.history_tracker.log_round(
+                        multiplier=0,
+                        bet_placed=True,
+                        stake=self.current_stake,
+                        cashout_time=0,
+                        profit_loss=loss,
+                        prediction=0,
+                        confidence=0,
+                        pred_range=(0, 0)
+                    )
                     round_data = self._create_round_data(0, True, self.current_stake, 0, loss, 
                                                          None, cumulative_profit, self.last_balance)
                     self._emit_dashboard_update(round_data)
@@ -582,8 +588,7 @@ class AviatorBotML:
                     # Read from clipboard and immediately add to history for real-time predictions
                     success, logged_mult = self.history_tracker.auto_log_from_clipboard(
                         self.detector,
-                        force=False,
-                        log_to_history=True  # ✅ Log immediately so models use latest data!
+                        force=False
                     )
 
                     if success and logged_mult and logged_mult != self.last_logged_mult:
@@ -669,13 +674,12 @@ class AviatorBotML:
                         self.history_tracker.log_round(
                             multiplier=0,
                             bet_placed=True,
-                            stake_amount=stake_used,
+                            stake=stake_used,
                             cashout_time=0,
                             profit_loss=loss,
-                            model_prediction=signal['prediction'],
-                            model_confidence=signal['confidence'],
-                            model_predicted_range_low=0,
-                            model_predicted_range_high=0
+                            prediction=signal['prediction'],
+                            confidence=signal['confidence'],
+                            pred_range=(0, 0)
                         )
                         
                         round_data = self._create_round_data(0, True, stake_used, 0, loss, 
@@ -719,7 +723,7 @@ class AviatorBotML:
                                 loss = -stake_used
                                 cumulative_profit += loss
                                 
-                                success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5, log_to_history=False)
+                                success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5)
                                 final_mult = crash_mult if success else 0
                                 
                                 self._log_round_result(round_number, "BET", stake_used, "CRASH", 
@@ -728,13 +732,12 @@ class AviatorBotML:
                                 self.history_tracker.log_round(
                                     multiplier=final_mult,
                                     bet_placed=True,
-                                    stake_amount=stake_used,
+                                    stake=stake_used,
                                     cashout_time=elapsed,
                                     profit_loss=loss,
-                                    model_prediction=signal['prediction'],
-                                    model_confidence=signal['confidence'],
-                                    model_predicted_range_low=0,
-                                    model_predicted_range_high=0
+                                    prediction=signal['prediction'],
+                                    confidence=signal['confidence'],
+                                    pred_range=(0, 0)
                                 )
                                 
                                 round_data = self._create_round_data(final_mult, True, stake_used, elapsed, loss, 
@@ -768,14 +771,22 @@ class AviatorBotML:
                                 loss = -stake_used
                                 cumulative_profit += loss
                                 
-                                success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5, log_to_history=False)
+                                success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5)
                                 final_mult = crash_mult if success else 0
                                 
                                 self._log_round_result(round_number, "BET", stake_used, "CRASH", 
                                                       loss, final_mult, signal, self.last_balance, cumulative_profit)
                                 
-                                self.history_tracker.log_round(final_mult, True, stake_used, actual_elapsed, loss,
-                                                              signal['prediction'], signal['confidence'], signal['range'])
+                                self.history_tracker.log_round(
+                                    multiplier=final_mult,
+                                    bet_placed=True,
+                                    stake=stake_used,
+                                    cashout_time=actual_elapsed,
+                                    profit_loss=loss,
+                                    prediction=signal['prediction'],
+                                    confidence=signal['confidence'],
+                                    pred_range=(0, 0)
+                                )
                                 
                                 round_data = self._create_round_data(final_mult, True, stake_used, actual_elapsed, loss, 
                                                                      signal, cumulative_profit, self.last_balance)
@@ -793,49 +804,131 @@ class AviatorBotML:
                             )
                             
                             if cashout_success:
-                                print("  ✅ Cashout successful!")
-                                
-                                # Read balance
-                                time.sleep(0.3)
+                                print("  ✅ Cashout command sent!")
+
+                                # Wait for balance to update (0.5s delay)
+                                print("  ⏳ Validating balance change...")
+                                time.sleep(0.5)
                                 new_balance = self._read_balance()
-                                
-                                self.stats["successful_cashouts"] += 1
-                                self.stats["current_streak"] += 1
-                                
-                                final_mult = estimate_multiplier(self.config_manager.cashout_delay)
-                                returns = stake_used * final_mult
-                                profit = returns - stake_used
-                                cumulative_profit += profit
-                                self.stats["total_return"] += returns
-                                
-                                self._log_round_result(round_number, "BET", stake_used, "WIN", 
-                                                      profit, final_mult, signal, new_balance, cumulative_profit)
-                                
-                                self.history_tracker.log_round(
-                                    multiplier=final_mult,
-                                    bet_placed=True,
-                                    stake_amount=stake_used,
-                                    cashout_time=self.config_manager.cashout_delay,
-                                    profit_loss=profit,
-                                    model_prediction=signal['prediction'],
-                                    model_confidence=signal['confidence'],
-                                    model_predicted_range_low=0,
-                                    model_predicted_range_high=0
-                                )
-                                
-                                round_data = self._create_round_data(final_mult, True, stake_used, 
-                                                                     self.config_manager.cashout_delay, profit, 
-                                                                     signal, cumulative_profit, new_balance)
-                                self._emit_dashboard_update(round_data)
-                                
-                                self.last_balance = new_balance
-                                
-                                self.current_stake = increase_stake(
-                                    self.current_stake,
-                                    self.config_manager.stake_increase_percent,
-                                    self.config_manager.max_stake,
-                                    self.stats
-                                )
+
+                                # Validate if we actually won by checking balance
+                                if self.last_balance is not None and new_balance is not None:
+                                    balance_change = new_balance - self.last_balance
+
+                                    # If balance increased, it was a real win
+                                    if balance_change > 0:
+                                        print(f"  ✅ Balance validation: WIN confirmed (+{balance_change:.2f})")
+
+                                        self.stats["successful_cashouts"] += 1
+                                        self.stats["current_streak"] += 1
+
+                                        final_mult = estimate_multiplier(self.config_manager.cashout_delay)
+                                        profit = balance_change
+                                        returns = stake_used + profit
+                                        cumulative_profit += profit
+                                        self.stats["total_return"] += returns
+
+                                        self._log_round_result(round_number, "BET", stake_used, "WIN",
+                                                              profit, final_mult, signal, new_balance, cumulative_profit)
+
+                                        self.history_tracker.log_round(
+                                            multiplier=final_mult,
+                                            bet_placed=True,
+                                            stake=stake_used,
+                                            cashout_time=self.config_manager.cashout_delay,
+                                            profit_loss=profit,
+                                            prediction=signal['prediction'],
+                                            confidence=signal['confidence'],
+                                            pred_range=(0, 0)
+                                        )
+
+                                        round_data = self._create_round_data(final_mult, True, stake_used,
+                                                                             self.config_manager.cashout_delay, profit,
+                                                                             signal, cumulative_profit, new_balance)
+                                        self._emit_dashboard_update(round_data)
+
+                                        self.last_balance = new_balance
+
+                                        self.current_stake = increase_stake(
+                                            self.current_stake,
+                                            self.config_manager.stake_increase_percent,
+                                            self.config_manager.max_stake,
+                                            self.stats
+                                        )
+                                    else:
+                                        # Balance didn't increase - cashout failed, we lost
+                                        print(f"  ❌ Balance validation: LOST (balance change: {balance_change:.2f})")
+
+                                        self.stats["failed_cashouts"] += 1
+                                        self.stats["current_streak"] = 0
+
+                                        loss = -stake_used
+                                        cumulative_profit += loss
+
+                                        # Try to read actual crash multiplier
+                                        success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5)
+                                        final_mult = crash_mult if success else 0
+
+                                        self._log_round_result(round_number, "BET", stake_used, "CRASH",
+                                                              loss, final_mult, signal, new_balance, cumulative_profit)
+
+                                        self.history_tracker.log_round(
+                                            multiplier=final_mult,
+                                            bet_placed=True,
+                                            stake=stake_used,
+                                            cashout_time=actual_elapsed,
+                                            profit_loss=loss,
+                                            prediction=signal['prediction'],
+                                            confidence=signal['confidence'],
+                                            pred_range=(0, 0)
+                                        )
+
+                                        round_data = self._create_round_data(final_mult, True, stake_used, actual_elapsed, loss,
+                                                                             signal, cumulative_profit, new_balance)
+                                        self._emit_dashboard_update(round_data)
+
+                                        self.last_balance = new_balance
+                                        self.current_stake = reset_stake(self.config_manager.initial_stake, self.stats)
+                                else:
+                                    # Could not read balance - fallback to estimated profit
+                                    print("  ⚠️  Could not validate balance - using estimated profit")
+
+                                    self.stats["successful_cashouts"] += 1
+                                    self.stats["current_streak"] += 1
+
+                                    final_mult = estimate_multiplier(self.config_manager.cashout_delay)
+                                    returns = stake_used * final_mult
+                                    profit = returns - stake_used
+                                    cumulative_profit += profit
+                                    self.stats["total_return"] += returns
+
+                                    self._log_round_result(round_number, "BET", stake_used, "WIN",
+                                                          profit, final_mult, signal, new_balance, cumulative_profit)
+
+                                    self.history_tracker.log_round(
+                                        multiplier=final_mult,
+                                        bet_placed=True,
+                                        stake=stake_used,
+                                        cashout_time=self.config_manager.cashout_delay,
+                                        profit_loss=profit,
+                                        prediction=signal['prediction'],
+                                        confidence=signal['confidence'],
+                                        pred_range=(0, 0)
+                                    )
+
+                                    round_data = self._create_round_data(final_mult, True, stake_used,
+                                                                         self.config_manager.cashout_delay, profit,
+                                                                         signal, cumulative_profit, new_balance)
+                                    self._emit_dashboard_update(round_data)
+
+                                    self.last_balance = new_balance
+
+                                    self.current_stake = increase_stake(
+                                        self.current_stake,
+                                        self.config_manager.stake_increase_percent,
+                                        self.config_manager.max_stake,
+                                        self.stats
+                                    )
                             else:
                                 print(f"  ❌ Cashout failed: {cashout_reason}")
                                 
@@ -847,7 +940,7 @@ class AviatorBotML:
                                     loss = -stake_used
                                     cumulative_profit += loss
                                     
-                                    success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5, log_to_history=False)
+                                    success, crash_mult = self._wait_for_crash_and_read_multiplier(timeout=5)
                                     final_mult = crash_mult if success else 0
                                     
                                     self._log_round_result(round_number, "BET", stake_used, "CRASH", 
@@ -856,13 +949,12 @@ class AviatorBotML:
                                     self.history_tracker.log_round(
                                         multiplier=final_mult,
                                         bet_placed=True,
-                                        stake_amount=stake_used,
+                                        stake=stake_used,
                                         cashout_time=actual_elapsed,
                                         profit_loss=loss,
-                                        model_prediction=signal['prediction'],
-                                        model_confidence=signal['confidence'],
-                                        model_predicted_range_low=0,
-                                        model_predicted_range_high=0
+                                        prediction=signal['prediction'],
+                                        confidence=signal['confidence'],
+                                        pred_range=(0, 0)
                                     )
                                     
                                     round_data = self._create_round_data(final_mult, True, stake_used, actual_elapsed, loss, 
@@ -895,7 +987,7 @@ class AviatorBotML:
                     self._reset_bet_state()
                     
                     print("\n  ⏳ Waiting for round to complete...")
-                    success, observed_mult = self._wait_for_crash_and_read_multiplier(timeout=60, log_to_history=False)
+                    success, observed_mult = self._wait_for_crash_and_read_multiplier(timeout=60)
                     
                     if not success:
                         observed_mult = 2.0
@@ -908,13 +1000,12 @@ class AviatorBotML:
                     self.history_tracker.log_round(
                         multiplier=observed_mult,
                         bet_placed=False,
-                        stake_amount=0,
+                        stake=0,
                         cashout_time=0,
                         profit_loss=0,
-                        model_prediction=signal['prediction'],
-                        model_confidence=signal['confidence'],
-                        model_predicted_range_low=0,
-                        model_predicted_range_high=0
+                        prediction=signal['prediction'],
+                        confidence=signal['confidence'],
+                        pred_range=(0, 0)
                     )
                     
                     round_data = self._create_round_data(observed_mult, False, 0, 0, 0, 
