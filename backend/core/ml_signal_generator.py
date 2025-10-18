@@ -139,6 +139,52 @@ class MLSignalGenerator:
 
         else:
             # SKIP - No position recommends betting
+            # Build detailed skip reasoning
+            skip_details = []
+
+            # Position 1 analysis
+            pos1_15_prob = pos1_signal_15['green_probability']
+            pos1_20_prob = pos1_signal_20['green_probability']
+
+            skip_details.append("🎯 POSITION 1 (ML Green Classifier):")
+            skip_details.append(f"   • 1.5x Target: {pos1_15_prob:.1f}% green probability, {pos1_signal_15['confidence']:.1f}% confidence")
+            skip_details.append(f"     ↳ Threshold: Need 55% confidence (currently {pos1_signal_15['confidence']:.1f}%)")
+
+            if pos1_signal_15['confidence'] < 55:
+                gap = 55 - pos1_signal_15['confidence']
+                skip_details.append(f"     ↳ Gap: {gap:.1f}% below threshold - pattern not strong enough")
+
+            skip_details.append(f"   • 2.0x Target: {pos1_20_prob:.1f}% green probability, {pos1_signal_20['confidence']:.1f}% confidence")
+            skip_details.append(f"     ↳ Threshold: Need 50% confidence (currently {pos1_signal_20['confidence']:.1f}%)")
+
+            if pos1_signal_20['confidence'] < 50:
+                gap = 50 - pos1_signal_20['confidence']
+                skip_details.append(f"     ↳ Gap: {gap:.1f}% below threshold - pattern not strong enough")
+
+            # Position 2 analysis
+            skip_details.append("")
+            skip_details.append("🎲 POSITION 2 (Rule-Based Pattern Detection):")
+
+            # Get last 10 rounds for pattern info
+            last_10 = recent_multipliers[-10:]
+            low_count = sum(1 for m in last_10 if m < 2.0)
+            high_count = sum(1 for m in last_10 if m >= 3.0)
+            has_recent_high = any(m >= 5.0 for m in last_10)
+
+            if has_recent_high:
+                highest = max(m for m in last_10 if m >= 5.0)
+                skip_details.append(f"   • Burst pattern detected: {highest:.2f}x in last 10 rounds")
+                skip_details.append(f"     ↳ Waiting for pattern to cool down before betting")
+            else:
+                skip_details.append(f"   • Cold streak: {low_count}/10 rounds below 2x")
+                skip_details.append(f"     ↳ Threshold: Need 7+ low rounds (currently {low_count})")
+                if low_count < 7:
+                    skip_details.append(f"     ↳ Gap: Need {7 - low_count} more low rounds to trigger bet")
+
+            skip_details.append(f"   • Pattern strength: {pos2_signal['confidence']:.1f}% (too weak)")
+
+            skip_reason_detailed = "\n".join(skip_details)
+
             return {
                 'should_bet': False,
                 'confidence': max(pos1_confidence, pos2_signal['confidence']),
@@ -150,7 +196,16 @@ class MLSignalGenerator:
                        f"Position 2 (3x+): {pos2_signal['reason']}",
                 'models': [],
                 'strategy': 'skip',
-                'target_multiplier': 0
+                'target_multiplier': 0,
+                'skip_reason_detailed': skip_reason_detailed,
+                'pos1_signal_15': pos1_signal_15,
+                'pos1_signal_20': pos1_signal_20,
+                'pos2_analysis': {
+                    'low_count': low_count,
+                    'high_count': high_count,
+                    'has_recent_high': has_recent_high,
+                    'last_10_mults': last_10
+                }
             }
 
     def _generate_position2_signal(self, recent_multipliers):
@@ -301,6 +356,144 @@ class MLSignalGenerator:
             'strategy': 'regression',
             'target_multiplier': round(ensemble_pred, 2)
         }
+
+    def get_highest_multipliers_by_time(self):
+        """
+        Get highest multipliers for different time windows (5, 10, 20, 30 minutes).
+        Assumes average round duration is ~10 seconds (6 rounds per minute).
+
+        Returns:
+            dict: Highest multipliers for each time window
+        """
+        try:
+            # Time windows in minutes
+            time_windows = {
+                '5min': 5,
+                '10min': 10,
+                '20min': 20,
+                '30min': 30
+            }
+
+            results = {}
+
+            for window_name, minutes in time_windows.items():
+                # Approximate rounds per time window (6 rounds/min * minutes)
+                rounds_count = minutes * 6
+
+                # Get recent rounds for this window
+                recent_rounds = self.history_tracker.get_recent_rounds(rounds_count)
+
+                if recent_rounds.empty or 'multiplier' not in recent_rounds.columns:
+                    results[window_name] = {
+                        'max_multiplier': 0,
+                        'rounds_analyzed': 0,
+                        'timestamp': None
+                    }
+                    continue
+
+                # Find max multiplier in this window
+                max_mult = recent_rounds['multiplier'].max()
+                max_idx = recent_rounds['multiplier'].idxmax()
+
+                # Get timestamp if available
+                timestamp = None
+                if 'timestamp' in recent_rounds.columns:
+                    timestamp = recent_rounds.loc[max_idx, 'timestamp']
+
+                results[window_name] = {
+                    'max_multiplier': round(max_mult, 2),
+                    'rounds_analyzed': len(recent_rounds),
+                    'timestamp': timestamp
+                }
+
+            return results
+
+        except Exception as e:
+            print(f"Error getting highest multipliers: {e}")
+            return {}
+
+    def get_top_multipliers_last_hour(self, top_n=10):
+        """
+        Get top N highest multipliers from the last hour.
+        Assumes average round duration is ~10 seconds (6 rounds per minute, 360 rounds per hour).
+
+        Args:
+            top_n: Number of top multipliers to return (default: 10)
+
+        Returns:
+            list: List of tuples (multiplier, index_from_end, timestamp)
+        """
+        try:
+            # Get last hour of rounds (360 rounds = 60 min * 6 rounds/min)
+            rounds_in_hour = 60 * 6
+            recent_rounds = self.history_tracker.get_recent_rounds(rounds_in_hour)
+
+            if recent_rounds.empty or 'multiplier' not in recent_rounds.columns:
+                return []
+
+            # Get multipliers with their indices
+            multipliers_data = []
+            for idx, row in recent_rounds.iterrows():
+                mult = row['multiplier']
+                timestamp = row.get('timestamp', 'N/A')
+                # Calculate position from end (how many rounds ago)
+                position = len(recent_rounds) - list(recent_rounds.index).index(idx) - 1
+                multipliers_data.append((mult, position, timestamp))
+
+            # Sort by multiplier descending and get top N
+            top_multipliers = sorted(multipliers_data, key=lambda x: x[0], reverse=True)[:top_n]
+
+            return top_multipliers
+
+        except Exception as e:
+            print(f"Error getting top multipliers: {e}")
+            return []
+
+    def log_highest_multipliers(self):
+        """
+        Log the highest multipliers for 5, 10, 20, and 30 minute windows.
+        Also shows top 10 multipliers from the last hour.
+        """
+        try:
+            highest_mults = self.get_highest_multipliers_by_time()
+
+            if not highest_mults:
+                print("Unable to retrieve highest multipliers")
+                return
+
+            print("\n" + "="*60)
+            print("HIGHEST MULTIPLIERS BY TIME WINDOW")
+            print("="*60)
+
+            for window_name in ['5min', '10min', '20min', '30min']:
+                data = highest_mults.get(window_name, {})
+                max_mult = data.get('max_multiplier', 0)
+                rounds = data.get('rounds_analyzed', 0)
+                timestamp = data.get('timestamp', 'N/A')
+
+                print(f"{window_name:>8} | Max: {max_mult:6.2f}x | Rounds: {rounds:3d} | Time: {timestamp}")
+
+            print("="*60)
+
+            # Get and display top 10 multipliers from last hour
+            top_mults = self.get_top_multipliers_last_hour(top_n=10)
+
+            if top_mults:
+                print("\n" + "="*60)
+                print("TOP 10 MULTIPLIERS IN LAST HOUR")
+                print("="*60)
+                print(f"{'RANK':<6} | {'MULTIPLIER':<12} | {'ROUNDS AGO':<12} | {'TIME'}")
+                print("-"*60)
+
+                for rank, (mult, rounds_ago, timestamp) in enumerate(top_mults, 1):
+                    print(f"{rank:<6} | {mult:>10.2f}x | {rounds_ago:>10d} | {timestamp}")
+
+                print("="*60 + "\n")
+            else:
+                print("\n(No data available for top multipliers)\n")
+
+        except Exception as e:
+            print(f"Error logging highest multipliers: {e}")
 
     def analyze_recent_patterns(self, n_rounds=10):
         """

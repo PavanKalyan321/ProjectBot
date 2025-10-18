@@ -89,18 +89,19 @@ class RoundHistoryTracker:
 
     def auto_log_from_clipboard(self, detector, force=False):
         """
-        Automatically log round from clipboard reading.
-        
+        Read multiplier from clipboard and update cache WITHOUT logging to CSV.
+        The bot will call log_round() explicitly with complete information.
+
         Args:
             detector: GameStateDetector instance
-            force: Force logging even if cooldown not expired
-        
+            force: Force reading even if cooldown not expired
+
         Returns:
             Tuple (bool, float or None): (success, multiplier)
         """
         try:
             current_time = time.time()
-            
+
             # Check cooldown
             if not force and (current_time - self.last_log_time) < self.log_cooldown:
                 return False, None
@@ -110,15 +111,12 @@ class RoundHistoryTracker:
             if multiplier is None:
                 return False, None
 
-            # Check if already logged
+            # Check if already read
             if not force and multiplier == self.last_logged_multiplier:
                 return False, multiplier
 
-            # Log the round
-            self.log_round(multiplier=multiplier, bet_placed=False, stake=0,
-                          cashout_time=0, profit_loss=0)
-
-            # Add to local buffer
+            # DO NOT log to CSV here - the bot will call log_round() explicitly
+            # Just add to local buffer for immediate cache update
             self.local_history_buffer.append({
                 'multiplier': multiplier,
                 'timestamp': datetime.now().isoformat(),
@@ -128,11 +126,11 @@ class RoundHistoryTracker:
             # Update tracking
             self.last_logged_multiplier = multiplier
             self.last_log_time = current_time
-            
+
             return True, multiplier
 
         except Exception as e:
-            print(f"Error auto-logging from clipboard: {e}")
+            print(f"Error auto-reading from clipboard: {e}")
             return False, None
 
     def log_round(self, multiplier, bet_placed=False, stake=0, cashout_time=0,

@@ -32,10 +32,11 @@ def flush_print(text):
 class AviatorBotML:
     """Main Aviator Bot with enhanced logging and model insights."""
 
-    def __init__(self):
+    def __init__(self, dry_run=False):
         """Initialize bot with default settings."""
         self.config_manager = ConfigManager()
-        
+        self.dry_run = dry_run
+
         # Bot state
         self.current_stake = 25
         self.is_betting = False
@@ -43,16 +44,16 @@ class AviatorBotML:
         self.active_bet_round = None
         self.last_balance = None
         self.last_logged_mult = None
-        
+
         # Components (initialized after config load)
         self.detector = None
         self.history_tracker = None
         self.ml_generator = None
         self.dashboard = None
-        
+
         # Balance coordinates
         self.balance_coords = (626, 149, 694, 152)
-        
+
         # Statistics
         self.stats = {
             "rounds_played": 0,
@@ -228,6 +229,176 @@ class AviatorBotML:
 
         return False, None
     
+    def _show_detailed_model_analysis(self, signal):
+        """
+        Display detailed model analysis with individual reasoning and decision breakdown.
+        This shows INDIVIDUAL model predictions and reasoning, not just ensemble.
+        """
+        strategy = signal.get('strategy', 'unknown')
+        print(f"\n  📊 STRATEGY: {strategy.upper()}")
+        print("  " + "─"*90)
+
+        # Position-based strategies (Hybrid mode)
+        if 'position1' in strategy or 'position2' in strategy:
+            if 'position1' in strategy:
+                # Position 1: ML Green Classifier - Simple Table
+                print("\n  🎯 POSITION 1: ML Green Classifier")
+                target = signal.get('target_multiplier', 0)
+                green_prob = signal.get('green_probability', 0)
+                accuracy = signal.get('classifier_accuracy', 0)
+                confidence = signal.get('confidence', 0)
+
+                print("\n  ┌──────────────────────────┬────────────┐")
+                print("  │ METRIC                   │ VALUE      │")
+                print("  ├──────────────────────────┼────────────┤")
+                print(f"  │ Target Multiplier        │ {target:6.2f}x    │")
+                print(f"  │ Green Probability        │ {green_prob:6.1f}%    │")
+                print(f"  │ Model Confidence         │ {confidence:6.1f}%    │")
+                print(f"  │ Historical Accuracy      │ {accuracy:6.1f}%    │")
+                print("  └──────────────────────────┴────────────┘")
+
+                # Visual probability bar
+                bar_length = 30
+                filled = int((green_prob / 100) * bar_length)
+                bar = "█" * filled + "░" * (bar_length - filled)
+                print(f"\n  Success Probability: [{bar}] {green_prob:.1f}%")
+
+                print(f"\n  💡 REASONING:")
+                print(f"     ML classifier detected {green_prob:.1f}% probability of hitting {target:.2f}x")
+                print(f"     based on recent pattern analysis.")
+
+            elif 'position2' in strategy:
+                # Position 2: Rule-based for high multipliers - Simple Table
+                print("\n  🎲 POSITION 2: Rule-Based Pattern Detection")
+
+                if 'cold_streak' in strategy:
+                    cold_streak_len = signal.get('cold_streak_length', 0)
+                    target = signal.get('target_multiplier', 0)
+                    confidence = signal.get('confidence', 0)
+
+                    # Get last 10 rounds for pattern visualization
+                    recent_rounds = self.history_tracker.get_recent_rounds(10)
+                    if not recent_rounds.empty and 'multiplier' in recent_rounds.columns:
+                        recent_mults = recent_rounds['multiplier'].values[-10:]
+                        low_count = sum(1 for m in recent_mults if m < 2.0)
+                        high_count = sum(1 for m in recent_mults if m >= 3.0)
+
+                        # Simple table for Position 2
+                        print("\n  ┌──────────────────────────┬────────────┐")
+                        print("  │ METRIC                   │ VALUE      │")
+                        print("  ├──────────────────────────┼────────────┤")
+                        print(f"  │ Pattern Detected         │ COLD STREAK│")
+                        print(f"  │ Low Rounds (<2x)         │ {low_count:2d}/10      │")
+                        print(f"  │ High Rounds (≥3x)        │ {high_count:2d}/10      │")
+                        print(f"  │ Target Multiplier        │ {target:6.2f}x    │")
+                        print(f"  │ Confidence Level         │ {confidence:6.1f}%    │")
+                        print("  └──────────────────────────┴────────────┘")
+
+                        # Last 10 rounds visualization (simple)
+                        print("\n  📊 LAST 10 ROUNDS:")
+                        pattern_str = "  "
+                        for i, mult in enumerate(recent_mults, 1):
+                            if mult < 2.0:
+                                icon = "🔴"
+                            elif mult < 3.0:
+                                icon = "🟡"
+                            else:
+                                icon = "🟢"
+                            pattern_str += f"{icon}{mult:.2f}x "
+                        print(pattern_str)
+
+                        print(f"\n  💡 REASONING:")
+                        print(f"     Extended cold streak detected - {cold_streak_len}/10 rounds below 2x.")
+                        print(f"     Statistical analysis suggests higher multiplier is likely.")
+                        print(f"     Targeting {target:.2f}x for better returns.")
+                    else:
+                        # Fallback if no recent rounds available
+                        print("\n  ┌──────────────────────────┬────────────┐")
+                        print("  │ METRIC                   │ VALUE      │")
+                        print("  ├──────────────────────────┼────────────┤")
+                        print(f"  │ Pattern Detected         │ COLD STREAK│")
+                        print(f"  │ Streak Length            │ {cold_streak_len:2d}/10      │")
+                        print(f"  │ Target Multiplier        │ {target:6.2f}x    │")
+                        print(f"  │ Confidence Level         │ {confidence:6.1f}%    │")
+                        print("  └──────────────────────────┴────────────┘")
+
+                        print(f"\n  💡 REASONING:")
+                        print(f"     Extended cold streak detected - {cold_streak_len}/10 rounds below 2x.")
+                        print(f"     Targeting {target:.2f}x for better returns.")
+                else:
+                    print("\n  ┌──────────────────────────┬────────────┐")
+                    print("  │ METRIC                   │ VALUE      │")
+                    print("  ├──────────────────────────┼────────────┤")
+                    print(f"  │ Pattern Detected         │ NONE       │")
+                    print(f"  │ Decision                 │ SKIP       │")
+                    print("  └──────────────────────────┴────────────┘")
+                    print(f"\n  💡 REASONING: No strong pattern found. Waiting for better opportunity.")
+
+        # Regression-based models
+        elif 'regression' in strategy and signal.get('models'):
+            print("\n  🔬 REGRESSION ENSEMBLE: Individual Model Predictions")
+            predictions = signal['models']
+
+            # Table for regression models
+            print("\n  ┌──────────────────────────┬──────────┬────────────┐")
+            print("  │ MODEL                    │   PRED   │ CONFIDENCE │")
+            print("  ├──────────────────────────┼──────────┼────────────┤")
+
+            model_names = {
+                'RandomForest': 'Random Forest',
+                'GradientBoosting': 'Gradient Boosting',
+                'LightGBM': 'LightGBM',
+                'LSTM': 'LSTM Neural Net'
+            }
+
+            for pred in predictions:
+                model_id = pred.get('model_id', 'Unknown')
+                display_name = model_names.get(model_id, model_id)
+                pred_val = pred.get('prediction', 0)
+                conf = pred.get('confidence', 0)
+                print(f"  │ {display_name:<24} │ {pred_val:6.2f}x │  {conf:6.1f}%   │")
+
+            print("  ├──────────────────────────┼──────────┼────────────┤")
+
+            # Ensemble metrics
+            ensemble_pred = signal.get('prediction', 0)
+            ensemble_conf = signal.get('confidence', 0)
+            print(f"  │ ENSEMBLE                 │ {ensemble_pred:6.2f}x │  {ensemble_conf:6.1f}%   │")
+            print("  └──────────────────────────┴──────────┴────────────┘")
+
+            agreement = signal.get('agreement', 0)
+            expected_value = signal.get('expected_value', 0)
+
+            if agreement:
+                agreement_status = "HIGH" if agreement < 0.5 else "MEDIUM" if agreement < 1.0 else "LOW"
+                print(f"\n  Model Agreement: {agreement_status} (σ={agreement:.2f})")
+
+            if expected_value:
+                print(f"  Expected Value: {expected_value:.2f}")
+
+            print(f"\n  💡 REASONING:")
+            if agreement < 0.5:
+                print(f"     Models are in HIGH agreement - strong consensus on prediction.")
+            elif agreement < 1.0:
+                print(f"     Models show MEDIUM agreement - some variation in predictions.")
+            else:
+                print(f"     Models have LOW agreement - predictions vary significantly.")
+
+        # Skip decision
+        elif 'skip' in strategy:
+            print("\n  ⏭️  DECISION: SKIP ROUND")
+            reason = signal.get('reason', 'No reason provided')
+
+            print("\n  ┌──────────────────────────┬────────────┐")
+            print("  │ METRIC                   │ VALUE      │")
+            print("  ├──────────────────────────┼────────────┤")
+            print(f"  │ Decision                 │ SKIP       │")
+            print(f"  │ Confidence               │ {signal.get('confidence', 0):6.1f}%    │")
+            print("  └──────────────────────────┴────────────┘")
+
+            print(f"\n  💡 REASONING: {reason}")
+            print(f"     Waiting for stronger signal before placing bet.")
+
     def _show_model_predictions(self, signal):
         """Display individual model predictions in a compact format."""
         if not signal or 'models' not in signal:
@@ -349,6 +520,15 @@ class AviatorBotML:
             print(f"\n  ⏭️  DECISION: SKIP ROUND")
             print(f"  ❌ Reason: {signal['reason']}")
             print(f"  📊 Ensemble Confidence: {signal['confidence']:.1f}% (Threshold: {self.ml_generator.confidence_threshold}%)")
+
+            # Show detailed skip reasoning from actual models
+            if 'skip_reason_detailed' in signal:
+                print(f"\n  📋 DETAILED ANALYSIS FROM MODELS:")
+                print(f"  {'-'*90}")
+                for line in signal['skip_reason_detailed'].split('\n'):
+                    print(f"  {line}")
+                print(f"  {'-'*90}")
+
             self._show_model_predictions(signal)
     
     def _log_round_result(self, round_num, action, stake, result, profit, mult, signal, balance, cumulative):
@@ -471,6 +651,16 @@ class AviatorBotML:
 
                     if success and logged_mult and logged_mult != self.last_logged_mult:
                         self.last_logged_mult = logged_mult
+
+                        # Explicitly log this round to CSV
+                        self.history_tracker.log_round(
+                            multiplier=logged_mult,
+                            bet_placed=False,
+                            stake=0,
+                            cashout_time=0,
+                            profit_loss=0
+                        )
+
                         flush_print(f"  ✅ Round observed: {logged_mult:.2f}x (saved to history)")
                         self.stats["rounds_observed"] += 1
                     else:
@@ -503,6 +693,9 @@ class AviatorBotML:
                 else:
                     print("  ⚠️  Could not read round result")
 
+                # Show highest multipliers for different time windows
+                self.ml_generator.log_highest_multipliers()
+
                 history_read_for_round = False
 
                 # Show observation stats
@@ -521,6 +714,269 @@ class AviatorBotML:
             print(f"\n\n❌ Error: {e}")
             import traceback
             traceback.print_exc()
+
+    def run_dry_run_mode(self):
+        """
+        DRY RUN MODE - Logs all betting decisions without placing actual bets.
+        Simulates the full betting flow and tracks hypothetical profit/loss.
+        """
+        print("\n" + "="*100)
+        print("📝 AVIATOR BOT - DRY RUN MODE (SIMULATION)")
+        print("="*100)
+        print("🔍 Bot will simulate all betting decisions WITHOUT placing real bets")
+        print("💡 All ML predictions, stake management, and outcomes will be logged")
+        print("📊 Hypothetical profit/loss will be tracked based on actual multipliers")
+        print("💾 Data will be saved to CSV for analysis")
+        print("="*100)
+
+        cumulative_profit = 0
+        hypothetical_balance = 1000.0  # Starting hypothetical balance
+        round_number = 0
+        history_read_for_round = False
+
+        try:
+            while True:
+                round_number += 1
+                self._log_round_header(round_number)
+
+                # STEP 1: Wait for clean AWAITING state
+                flush_print("  ⏳ Waiting for AWAITING state...")
+                if not self.detector.wait_for_clean_awaiting_state(timeout=60):
+                    flush_print("  ⚠️  Timeout - retrying...")
+                    continue
+
+                flush_print("  ✅ AWAITING confirmed")
+                time.sleep(0.3)
+
+                # STEP 2: Read previous round multiplier
+                if not history_read_for_round:
+                    flush_print("  📝 Checking for previous round...")
+
+                    success, logged_mult = self.history_tracker.auto_log_from_clipboard(
+                        self.detector,
+                        force=False
+                    )
+
+                    if success and logged_mult and logged_mult != self.last_logged_mult:
+                        self.last_logged_mult = logged_mult
+                        flush_print(f"  ✅ Previous round: {logged_mult:.2f}x (added to history)")
+                    else:
+                        flush_print("  ℹ️  No new round data")
+
+                    history_read_for_round = True
+
+                time.sleep(0.2)
+
+                # STEP 3: Generate ML signal
+                print("\n  🤖 Analyzing patterns (DRY RUN - no bet will be placed)...")
+                signal = self.ml_generator.generate_ensemble_signal()
+
+                if signal['should_bet']:
+                    # SIMULATED BETTING ROUND
+                    stake_used = self.current_stake
+
+                    print(f"\n  📝 SIMULATED DECISION: WOULD PLACE BET")
+                    print(f"  💰 Simulated Stake: {stake_used}")
+                    print(f"  🎯 Target: {self.config_manager.cashout_delay}s (~{estimate_multiplier(self.config_manager.cashout_delay):.2f}x)")
+                    print(f"  📊 Ensemble Confidence: {signal['confidence']:.1f}%")
+
+                    # Show detailed model analysis
+                    self._show_detailed_model_analysis(signal)
+
+                    # Wait for current round to complete
+                    print("\n  ⏳ Waiting for round to complete to calculate hypothetical outcome...")
+                    success, observed_mult = self._wait_for_crash_and_read_multiplier(timeout=60)
+
+                    if not success:
+                        observed_mult = 2.0
+                        print("  ⚠️  Could not read multiplier, using default 2.0x")
+
+                    # Calculate hypothetical outcome
+                    target_mult = estimate_multiplier(self.config_manager.cashout_delay)
+
+                    if observed_mult >= target_mult:
+                        # SIMULATED WIN
+                        hypothetical_return = stake_used * target_mult
+                        hypothetical_profit = hypothetical_return - stake_used
+                        cumulative_profit += hypothetical_profit
+                        hypothetical_balance += hypothetical_profit
+
+                        self.stats["successful_cashouts"] += 1
+                        self.stats["ml_bets_placed"] += 1
+                        self.stats["total_bet"] += stake_used
+                        self.stats["total_return"] += hypothetical_return
+                        self.stats["current_streak"] += 1
+
+                        print(f"\n  ✅ SIMULATED RESULT: WIN (would have cashed out at {target_mult:.2f}x)")
+                        print(f"  💵 Simulated Stake: {stake_used:.0f}")
+                        print(f"  🎰 Actual Multiplier: {observed_mult:.2f}x")
+                        print(f"  🎯 Target Multiplier: {target_mult:.2f}x")
+                        print(f"  💰 Hypothetical P/L: +{hypothetical_profit:.2f}")
+                        print(f"  💳 Hypothetical Balance: {hypothetical_balance:.2f}")
+                        print(f"  📊 Cumulative P/L: {cumulative_profit:+.2f}")
+                        print(f"  🔥 Win Streak: {self.stats['current_streak']}")
+                        print(f"{'─'*100}")
+
+                        # Log to history with Position 2 signal if applicable
+                        pos2_data = None
+                        if 'position2' in signal.get('strategy', ''):
+                            pos2_data = signal
+
+                        self.history_tracker.log_round(
+                            multiplier=observed_mult,
+                            bet_placed=True,
+                            stake=stake_used,
+                            cashout_time=self.config_manager.cashout_delay,
+                            profit_loss=hypothetical_profit,
+                            prediction=signal['prediction'],
+                            confidence=signal['confidence'],
+                            pred_range=(0, 0),
+                            pos2_signal=pos2_data
+                        )
+
+                        # Increase stake on win
+                        self.current_stake = increase_stake(
+                            self.current_stake,
+                            self.config_manager.stake_increase_percent,
+                            self.config_manager.max_stake,
+                            self.stats
+                        )
+                    else:
+                        # SIMULATED LOSS
+                        hypothetical_loss = -stake_used
+                        cumulative_profit += hypothetical_loss
+                        hypothetical_balance += hypothetical_loss
+
+                        self.stats["failed_cashouts"] += 1
+                        self.stats["ml_bets_placed"] += 1
+                        self.stats["total_bet"] += stake_used
+                        self.stats["current_streak"] = 0
+
+                        print(f"\n  💥 SIMULATED RESULT: LOSS (crashed before target)")
+                        print(f"  💵 Simulated Stake: {stake_used:.0f}")
+                        print(f"  🎰 Actual Multiplier: {observed_mult:.2f}x")
+                        print(f"  🎯 Target Multiplier: {target_mult:.2f}x")
+                        print(f"  💰 Hypothetical P/L: {hypothetical_loss:.2f}")
+                        print(f"  💳 Hypothetical Balance: {hypothetical_balance:.2f}")
+                        print(f"  📊 Cumulative P/L: {cumulative_profit:+.2f}")
+                        print(f"{'─'*100}")
+
+                        # Log to history with Position 2 signal if applicable
+                        pos2_data = None
+                        if 'position2' in signal.get('strategy', ''):
+                            pos2_data = signal
+
+                        self.history_tracker.log_round(
+                            multiplier=observed_mult,
+                            bet_placed=True,
+                            stake=stake_used,
+                            cashout_time=self.config_manager.cashout_delay,
+                            profit_loss=hypothetical_loss,
+                            prediction=signal['prediction'],
+                            confidence=signal['confidence'],
+                            pred_range=(0, 0),
+                            pos2_signal=pos2_data
+                        )
+
+                        # Reset stake on loss
+                        self.current_stake = reset_stake(self.config_manager.initial_stake, self.stats)
+
+                else:
+                    # SKIP ROUND
+                    print(f"\n  ⏭️  SIMULATED DECISION: WOULD SKIP")
+                    print(f"  ❌ Reason: {signal['reason']}")
+                    print(f"  📊 Ensemble Confidence: {signal['confidence']:.1f}% (Threshold: {self.ml_generator.confidence_threshold}%)")
+
+                    # Show detailed model analysis for skip decision
+                    self._show_detailed_model_analysis(signal)
+
+                    self.stats["ml_skipped"] += 1
+
+                    print("\n  ⏳ Waiting for round to complete...")
+                    success, observed_mult = self._wait_for_crash_and_read_multiplier(timeout=60)
+
+                    if not success:
+                        observed_mult = 2.0
+
+                    print(f"\n  ⏭️  SIMULATED RESULT: SKIPPED")
+                    print(f"  🎰 Observed Multiplier: {observed_mult:.2f}x")
+                    print(f"  💰 Hypothetical P/L: 0.00")
+                    print(f"  💳 Hypothetical Balance: {hypothetical_balance:.2f}")
+                    print(f"  📊 Cumulative P/L: {cumulative_profit:+.2f}")
+                    print(f"{'─'*100}")
+
+                    # Log to history with Position 2 signal if applicable
+                    pos2_data = None
+                    if 'position2' in signal.get('strategy', ''):
+                        pos2_data = signal
+
+                    self.history_tracker.log_round(
+                        multiplier=observed_mult,
+                        bet_placed=False,
+                        stake=0,
+                        cashout_time=0,
+                        profit_loss=0,
+                        prediction=signal['prediction'],
+                        confidence=signal['confidence'],
+                        pred_range=(0, 0),
+                        pos2_signal=pos2_data
+                    )
+
+                # Show highest multipliers for different time windows
+                self.ml_generator.log_highest_multipliers()
+
+                history_read_for_round = False
+                self.stats["rounds_observed"] += 1
+
+                # Show periodic summary
+                if round_number % 10 == 0:
+                    print(f"\n  📈 DRY RUN SUMMARY (after {round_number} rounds):")
+                    print(f"  💰 Hypothetical Balance: {hypothetical_balance:.2f}")
+                    print(f"  📊 Cumulative P/L: {cumulative_profit:+.2f}")
+                    if self.stats['ml_bets_placed'] > 0:
+                        win_rate = (self.stats['successful_cashouts'] / self.stats['ml_bets_placed']) * 100
+                        print(f"  ✅ Win Rate: {win_rate:.1f}%")
+                        print(f"  🎯 Bets Simulated: {self.stats['ml_bets_placed']}")
+
+                time.sleep(0.3)
+
+        except KeyboardInterrupt:
+            print("\n\n⏹️  Dry run stopped by user")
+            self.print_dry_run_stats(cumulative_profit, hypothetical_balance)
+        except Exception as e:
+            print(f"\n\n❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+            self.print_dry_run_stats(cumulative_profit, hypothetical_balance)
+
+    def print_dry_run_stats(self, cumulative_profit, hypothetical_balance):
+        """Print dry run statistics."""
+        print("\n" + "="*100)
+        print("📊 DRY RUN FINAL STATISTICS")
+        print("="*100)
+        print(f"Rounds observed:       {self.stats['rounds_observed']}")
+        print(f"Simulated bets:        {self.stats['ml_bets_placed']}")
+        print(f"Simulated wins:        {self.stats['successful_cashouts']}")
+        print(f"Simulated losses:      {self.stats['failed_cashouts']}")
+        print(f"Skipped rounds:        {self.stats['ml_skipped']}")
+
+        if self.stats['ml_bets_placed'] > 0:
+            success_rate = (self.stats['successful_cashouts'] / self.stats['ml_bets_placed']) * 100
+            print(f"Win rate:              {success_rate:.1f}%")
+
+        print(f"\n💰 Hypothetical Financial:")
+        print(f"  Total staked:        {self.stats['total_bet']:.2f}")
+        print(f"  Total returned:      {self.stats['total_return']:.2f}")
+        print(f"  Profit/Loss:         {cumulative_profit:+.2f}")
+        print(f"  Final balance:       {hypothetical_balance:.2f}")
+
+        if self.stats['total_bet'] > 0:
+            roi = (cumulative_profit / self.stats['total_bet']) * 100
+            print(f"  ROI:                 {roi:+.1f}%")
+
+        print("\n💡 This was a simulation - NO REAL BETS WERE PLACED")
+        print("📊 All data has been logged to CSV for analysis")
+        print("="*100 + "\n")
 
     def run_ml_mode(self):
         """Main betting loop with enhanced logging."""
@@ -1008,12 +1464,15 @@ class AviatorBotML:
                         pred_range=(0, 0)
                     )
                     
-                    round_data = self._create_round_data(observed_mult, False, 0, 0, 0, 
+                    round_data = self._create_round_data(observed_mult, False, 0, 0, 0,
                                                          signal, cumulative_profit, self.last_balance)
                     self._emit_dashboard_update(round_data)
-                    
+
                     history_read_for_round = False
-                
+
+                # Show highest multipliers for different time windows
+                self.ml_generator.log_highest_multipliers()
+
                 self.stats["rounds_observed"] += 1
                 
                 if self.dashboard:
@@ -1154,18 +1613,22 @@ def main():
     print("OPERATING MODE")
     print("="*100)
     print("\nChoose mode:")
-    print("  1. BETTING MODE - Place bets based on ML predictions")
-    print("  2. OBSERVATION MODE - Collect data without betting (build history for training)")
+    print("  1. BETTING MODE - Place real bets based on ML predictions")
+    print("  2. DRY RUN MODE - Simulate betting and log all decisions (NO REAL BETS)")
+    print("  3. OBSERVATION MODE - Collect data without betting (build history for training)")
     print("\nNote: Models need at least 20 rounds of data before they can make predictions.")
 
-    mode_choice = input("\nChoice (1/2, default: 1): ").strip()
+    mode_choice = input("\nChoice (1/2/3, default: 1): ").strip()
 
     if mode_choice == '2':
-        observation_mode = True
+        mode = 'dry_run'
+        print("\n📝 DRY RUN MODE - Bot will simulate all decisions WITHOUT placing real bets")
+    elif mode_choice == '3':
+        mode = 'observation'
         print("\n📊 OBSERVATION MODE - Bot will only collect data, no bets will be placed")
     else:
-        observation_mode = False
-        print("\n💰 BETTING MODE - Bot will place bets based on ML predictions")
+        mode = 'betting'
+        print("\n💰 BETTING MODE - Bot will place real bets based on ML predictions")
 
     print("\nPress Enter to start...")
     input()
@@ -1173,8 +1636,10 @@ def main():
     # Save config and run
     bot.config_manager.save_config()
 
-    if observation_mode:
+    if mode == 'observation':
         bot.run_observation_mode()
+    elif mode == 'dry_run':
+        bot.run_dry_run_mode()
     else:
         bot.run_ml_mode()
 
