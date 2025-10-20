@@ -9,55 +9,164 @@ from datetime import datetime
 import re
 
 
+def generate_realistic_timestamps(num_rounds, avg_round_duration=10, start_from_now=True):
+    """
+    Generate realistic timestamps for manual history by backdating from current time.
+
+    Aviator rounds typically take 8-15 seconds with some variation.
+    This function creates timestamps that look like real game rounds.
+
+    Args:
+        num_rounds: Number of rounds to generate timestamps for
+        avg_round_duration: Average seconds per round (default: 10)
+        start_from_now: If True, backdate from now; if False, use current time
+
+    Returns:
+        list: List of timestamp strings in "YYYY-MM-DD HH:MM:SS" format (oldest first)
+    """
+    from datetime import timedelta
+    import random
+
+    timestamps = []
+
+    if start_from_now:
+        current_time = datetime.now()
+    else:
+        current_time = datetime.now()
+
+    # Start from oldest (furthest back in time)
+    # Calculate total time span needed
+    total_seconds = num_rounds * avg_round_duration
+    start_time = current_time - timedelta(seconds=total_seconds)
+
+    for i in range(num_rounds):
+        # Add some randomness (±3 seconds) to make it realistic
+        variation = random.uniform(-3, 3)
+        round_duration = avg_round_duration + variation
+
+        # Calculate this round's timestamp
+        round_time = start_time + timedelta(seconds=i * round_duration)
+
+        # Format as string
+        timestamp_str = round_time.strftime("%Y-%m-%d %H:%M:%S")
+        timestamps.append(timestamp_str)
+
+    return timestamps
+
+
+def generate_realistic_round_ids(timestamps):
+    """
+    Generate realistic round IDs based on timestamps.
+
+    Args:
+        timestamps: List of timestamp strings
+
+    Returns:
+        list: List of round_id strings
+    """
+    round_ids = []
+
+    for ts in timestamps:
+        # Parse timestamp and create round_id
+        dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+        # Add microseconds for uniqueness
+        round_id = dt.strftime("%Y%m%d%H%M%S") + f"{len(round_ids):06d}"
+        round_ids.append(round_id)
+
+    return round_ids
+
+
+def remove_duplicate_multipliers(multipliers):
+    """
+    Remove consecutive duplicate multipliers while preserving order.
+    Also removes exact duplicates across the entire list.
+
+    Args:
+        multipliers: List of multiplier values
+
+    Returns:
+        tuple: (cleaned_list, num_removed)
+    """
+    if not multipliers:
+        return [], 0
+
+    original_count = len(multipliers)
+
+    # First pass: Remove consecutive duplicates
+    cleaned = []
+    prev = None
+
+    for mult in multipliers:
+        if mult != prev:
+            cleaned.append(mult)
+            prev = mult
+
+    # Second pass: Track seen multipliers with their first occurrence time
+    # Keep only first occurrence of each value
+    seen = set()
+    final_cleaned = []
+
+    for mult in cleaned:
+        # Use rounded value to catch near-duplicates
+        rounded = round(mult, 2)
+        if rounded not in seen:
+            seen.add(rounded)
+            final_cleaned.append(mult)
+
+    removed = original_count - len(final_cleaned)
+
+    return final_cleaned, removed
+
+
 def parse_multiplier_robust(text):
     """
     Robustly parse multiplier from text, handling multiple values and special characters.
-    
+
     Args:
         text: Text that may contain multiplier(s), dashes, or multiple values
-        
+
     Returns:
         float or None: The LAST valid multiplier found, or None
     """
     if not text:
         return None
-    
+
     # Clean the text
     text = str(text).strip()
-    
+
     # Replace common separators with spaces
     text = text.replace(',', ' ').replace('|', ' ').replace('/', ' ')
-    
+
     # Split by whitespace and dashes
     parts = re.split(r'[\s\-]+', text)
-    
+
     # Try to find all valid multipliers
     multipliers = []
-    
+
     for part in parts:
         if not part or part == '-':
             continue
-        
+
         # Remove 'x' suffix/prefix
         part = part.replace('x', '').replace('X', '').strip()
-        
+
         if not part:
             continue
-        
+
         try:
             # Try to parse as float
             value = float(part)
-            
+
             # Validate range (0.01 to 10000)
             if 0.01 <= value <= 10000:
                 multipliers.append(value)
         except ValueError:
             continue
-    
+
     # Return the LAST multiplier found (most recent)
     if multipliers:
         return multipliers[-1]
-    
+
     return None
 
 
@@ -149,7 +258,7 @@ class ManualHistoryLoader:
                 text = f.read()
             return self.parse_multipliers_from_text(text)
         except Exception as e:
-            print(f"❌ Error reading file: {e}")
+            print(f"[ERROR] Error reading file: {e}")
             return []
     
     def load_from_manual_input(self):
@@ -160,7 +269,7 @@ class ManualHistoryLoader:
             List of float multipliers
         """
         print("\n" + "="*80)
-        print("📝 MANUAL HISTORY INPUT")
+        print("[INPUT] MANUAL HISTORY INPUT")
         print("="*80)
         print("\nYou can input previous round multipliers in several ways:")
         print("  1. Paste all multipliers (press Enter twice when done)")
@@ -175,12 +284,12 @@ class ManualHistoryLoader:
         elif choice == '2':
             return self._input_file_mode()
         else:
-            print("\n⏭️  Skipping manual history input")
+            print("\n[SKIP]  Skipping manual history input")
             return []
     
     def _input_paste_mode(self):
         """Get multipliers from paste input."""
-        print("\n📋 PASTE MODE")
+        print("\n[PASTE] PASTE MODE")
         print("="*80)
         print("Paste your multipliers (one per line or space-separated)")
         print("Handles: jammed values (2.5 3.4), dashes (2.5 - 3.4), mixed formats")
@@ -204,52 +313,96 @@ class ManualHistoryLoader:
         text = '\n'.join(lines)
         multipliers = self.parse_multipliers_from_text(text)
         
-        print(f"\n✅ Parsed {len(multipliers)} multipliers")
+        print(f"\n[OK] Parsed {len(multipliers)} multipliers")
         if multipliers:
-            print(f"📊 Range: {min(multipliers):.2f}x - {max(multipliers):.2f}x")
-            print(f"📈 Average: {sum(multipliers)/len(multipliers):.2f}x")
+            print(f"[STATS] Range: {min(multipliers):.2f}x - {max(multipliers):.2f}x")
+            print(f"[CHART] Average: {sum(multipliers)/len(multipliers):.2f}x")
             
             # Show first few and last few
             if len(multipliers) > 10:
                 preview = multipliers[:5] + ['...'] + multipliers[-5:]
-                print(f"📋 Preview: {', '.join(str(m) if isinstance(m, str) else f'{m:.2f}x' for m in preview)}")
+                print(f"[PASTE] Preview: {', '.join(str(m) if isinstance(m, str) else f'{m:.2f}x' for m in preview)}")
         
         return multipliers
     
     def _input_file_mode(self):
         """Get multipliers from file."""
-        print("\n📁 FILE MODE")
+        print("\n[FILE] FILE MODE")
         print("="*80)
         filepath = input("Enter file path: ").strip().strip('"').strip("'")
         
         if not os.path.exists(filepath):
-            print(f"❌ File not found: {filepath}")
+            print(f"[ERROR] File not found: {filepath}")
             return []
         
         multipliers = self.parse_multipliers_from_file(filepath)
         
-        print(f"\n✅ Parsed {len(multipliers)} multipliers from file")
+        print(f"\n[OK] Parsed {len(multipliers)} multipliers from file")
         if multipliers:
-            print(f"📊 Range: {min(multipliers):.2f}x - {max(multipliers):.2f}x")
-            print(f"📈 Average: {sum(multipliers)/len(multipliers):.2f}x")
+            print(f"[STATS] Range: {min(multipliers):.2f}x - {max(multipliers):.2f}x")
+            print(f"[CHART] Average: {sum(multipliers)/len(multipliers):.2f}x")
         
         return multipliers
     
-    def save_to_csv(self, multipliers, append=True):
+    def save_to_csv(self, multipliers, append=True, use_realistic_timestamps=True, avg_round_duration=10):
         """
-        Save multipliers to CSV file.
-        
+        Save multipliers to CSV file with realistic timestamps and automatic duplicate removal.
+
         Args:
             multipliers: List of multipliers to save
             append: If True, append to existing file; if False, overwrite
+            use_realistic_timestamps: If True, generate backdated timestamps (default: True)
+            avg_round_duration: Average seconds per round for timestamp generation (default: 10)
         """
+        if not multipliers:
+            print("\n[WARNING] No multipliers to save")
+            return False
+
         mode = 'a' if append and os.path.exists(self.csv_file) else 'w'
         file_exists = os.path.exists(self.csv_file) and append
-        
+
+        # Clean duplicates first
+        print(f"\n[STEP 1] Removing duplicates from input...")
+        cleaned_mults, num_removed = remove_duplicate_multipliers(multipliers)
+
+        if num_removed > 0:
+            print(f"   Removed {num_removed} duplicate multipliers")
+            print(f"   {len(cleaned_mults)} unique multipliers remaining")
+        else:
+            print(f"   No duplicates found - all {len(cleaned_mults)} multipliers are unique")
+
+        if not cleaned_mults:
+            print("\n[WARNING] No multipliers left after deduplication")
+            return False
+
         try:
+            # Generate realistic timestamps
+            if use_realistic_timestamps:
+                print(f"\n[STEP 2] Generating realistic timestamps...")
+                print(f"   Average round duration: {avg_round_duration}s")
+                timestamps = generate_realistic_timestamps(
+                    len(cleaned_mults),
+                    avg_round_duration=avg_round_duration,
+                    start_from_now=True
+                )
+                round_ids = generate_realistic_round_ids(timestamps)
+
+                # Show time span
+                oldest = timestamps[0]
+                newest = timestamps[-1]
+                print(f"   Time span: {oldest} to {newest}")
+                print(f"   Total duration: ~{len(cleaned_mults) * avg_round_duration / 60:.1f} minutes")
+            else:
+                print(f"\n[STEP 2] Using current timestamp for all entries...")
+                current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                timestamps = [current_timestamp] * len(cleaned_mults)
+                round_ids = [datetime.now().strftime("%Y%m%d%H%M%S%f") + f"{i:06d}" for i in range(len(cleaned_mults))]
+
+            # Write to CSV
+            print(f"\n[STEP 3] Writing to CSV file...")
             with open(self.csv_file, mode, newline='') as f:
                 writer = csv.writer(f)
-                
+
                 # Write header if new file (must match history_tracker.py schema!)
                 if not file_exists:
                     writer.writerow([
@@ -260,15 +413,12 @@ class ManualHistoryLoader:
                         'pos2_confidence', 'pos2_target_multiplier', 'pos2_burst_probability',
                         'pos2_phase', 'pos2_rules_triggered'
                     ])
-                
-                # Write multipliers (must match 16-column schema!)
-                for mult in multipliers:
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    round_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
 
+                # Write multipliers with realistic timestamps (must match 16-column schema!)
+                for i, mult in enumerate(cleaned_mults):
                     writer.writerow([
-                        timestamp,
-                        round_id,
+                        timestamps[i],
+                        round_ids[i],
                         mult,
                         False,  # bet_placed
                         0,      # stake_amount
@@ -284,11 +434,13 @@ class ManualHistoryLoader:
                         'manual',  # pos2_phase
                         ''      # pos2_rules_triggered
                     ])
-            
-            print(f"\n✅ Saved {len(multipliers)} multipliers to {self.csv_file}")
+
+            print(f"\n[OK] Saved {len(cleaned_mults)} unique multipliers to {self.csv_file}")
             return True
         except Exception as e:
-            print(f"\n❌ Error saving to CSV: {e}")
+            print(f"\n[ERROR] Error saving to CSV: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def load_history_for_tracker(self, history_tracker):
@@ -308,13 +460,13 @@ class ManualHistoryLoader:
             return 0
         
         # Ask if user wants to save to CSV
-        save_choice = input("\n💾 Save to CSV? (y/n, default: y): ").strip().lower()
+        save_choice = input("\n[SAVE] Save to CSV? (y/n, default: y): ").strip().lower()
         if save_choice != 'n':
             self.save_to_csv(multipliers, append=True)
         
         # Load into tracker
-        print(f"\n📥 Loading {len(multipliers)} rounds into tracker...")
-        
+        print(f"\n[LOAD] Loading {len(multipliers)} rounds into tracker...")
+
         count = 0
         for mult in multipliers:
             try:
@@ -332,15 +484,15 @@ class ManualHistoryLoader:
                 )
                 count += 1
             except Exception as e:
-                print(f"⚠️  Error logging round {mult}: {e}")
+                print(f"[WARNING]  Error logging round {mult}: {e}")
                 continue
         
-        print(f"✅ Successfully loaded {count} rounds")
+        print(f"[OK] Successfully loaded {count} rounds")
 
         # Get recent rounds to show total history size
         recent_df = history_tracker.get_recent_rounds(10000)
         if not recent_df.empty:
-            print(f"📊 Total history size: {len(recent_df)}")
+            print(f"[STATS] Total history size: {len(recent_df)}")
 
         return count
     
@@ -350,7 +502,7 @@ class ManualHistoryLoader:
             return
         
         print("\n" + "="*80)
-        print("📊 LOADED HISTORY STATISTICS")
+        print("[STATS] LOADED HISTORY STATISTICS")
         print("="*80)
         
         # Basic stats
@@ -365,7 +517,7 @@ class ManualHistoryLoader:
         medium = sum(1 for m in multipliers if 2.0 <= m < 10.0)
         high = sum(1 for m in multipliers if m >= 10.0)
         
-        print(f"\n📈 Range Distribution:")
+        print(f"\n[CHART] Range Distribution:")
         print(f"  Low (< 2x):      {low:4d} ({low/len(multipliers)*100:5.1f}%)")
         print(f"  Medium (2-10x):  {medium:4d} ({medium/len(multipliers)*100:5.1f}%)")
         print(f"  High (>= 10x):   {high:4d} ({high/len(multipliers)*100:5.1f}%)")
@@ -373,7 +525,7 @@ class ManualHistoryLoader:
         # Notable multipliers
         very_high = [m for m in multipliers if m >= 100]
         if very_high:
-            print(f"\n🚀 Very High Multipliers (>= 100x):")
+            print(f"\n[HIGH] Very High Multipliers (>= 100x):")
             for m in sorted(very_high, reverse=True)[:5]:
                 print(f"  {m:.2f}x")
         
@@ -391,29 +543,29 @@ def integrate_manual_history_with_bot(bot):
         int: Number of rounds loaded
     """
     if not bot.history_tracker:
-        print("⚠️  No history tracker available")
+        print("[WARNING]  No history tracker available")
         return 0
     
     loader = ManualHistoryLoader(csv_file="aviator_rounds_history.csv")
     
     # Check if CSV exists and has data
     if os.path.exists(loader.csv_file):
-        print(f"\n📁 Found existing history file: {loader.csv_file}")
+        print(f"\n[FILE] Found existing history file: {loader.csv_file}")
         
         # Count existing rounds
         try:
             with open(loader.csv_file, 'r') as f:
                 existing_count = sum(1 for _ in f) - 1  # Subtract header
-            print(f"📊 Existing rounds in file: {existing_count}")
+            print(f"[STATS] Existing rounds in file: {existing_count}")
         except:
             existing_count = 0
     
     # Ask if user wants to add manual history
     print("\n" + "="*80)
-    add_manual = input("📝 Add manual history for better predictions? (y/n, default: y): ").strip().lower()
+    add_manual = input("[INPUT] Add manual history for better predictions? (y/n, default: y): ").strip().lower()
     
     if add_manual == 'n':
-        print("⏭️  Skipping manual history")
+        print("[SKIP]  Skipping manual history")
         return 0
     
     # Load manual history
@@ -425,7 +577,7 @@ def integrate_manual_history_with_bot(bot):
         
         # Update ML model if needed
         if bot.ml_generator:
-            print("\n🤖 ML models will use this history for predictions")
+            print("\n[ML] ML models will use this history for predictions")
     
     return count
 
@@ -448,7 +600,7 @@ def test_robust_parsing():
     ]
     
     print("="*80)
-    print("🧪 ROBUST PARSING TESTS")
+    print("[TEST] ROBUST PARSING TESTS")
     print("="*80)
     
     for test in test_cases:
@@ -481,7 +633,7 @@ def load_sample_data():
     loader = ManualHistoryLoader()
     multipliers = loader.parse_multipliers_from_text(sample_text)
     
-    print(f"\n✅ Loaded {len(multipliers)} multipliers from sample data")
+    print(f"\n[OK] Loaded {len(multipliers)} multipliers from sample data")
     loader.show_statistics(multipliers)
     
     return multipliers
@@ -490,354 +642,19 @@ def load_sample_data():
 if __name__ == "__main__":
     # Test the loader
     print("="*80)
-    print("🧪 MANUAL HISTORY LOADER - TEST MODE")
+    print("MANUAL HISTORY LOADER - TEST MODE")
     print("="*80)
-    
+
     # Test robust parsing
     test_robust_parsing()
-    
+
     print("\n")
-    
+
     # Load sample data
     multipliers = load_sample_data()
-    
+
     # Save to CSV
     if multipliers:
         loader = ManualHistoryLoader()
         loader.save_to_csv(multipliers, append=False)
-        print(f"\n💾 Saved to {loader.csv_file}")
-
-    """Load and manage manual history input for better ML predictions."""
-    
-    def __init__(self, csv_file="aviator_history.csv"):
-        self.csv_file = csv_file
-        self.history = []
-    
-    def parse_multipliers_from_text(self, text):
-        """
-        Parse multipliers from a text string (one per line or space-separated).
-        
-        Args:
-            text: String containing multipliers
-            
-        Returns:
-            List of float multipliers
-        """
-        multipliers = []
-        
-        # Split by newlines and spaces
-        lines = text.strip().split('\n')
-        
-        for line in lines:
-            # Split by spaces/commas
-            parts = re.split(r'[,\s]+', line.strip())
-            
-            for part in parts:
-                if not part:
-                    continue
-                
-                try:
-                    # Try to parse as float
-                    mult = float(part.replace('x', '').strip())
-                    
-                    # Validate range (0.01 to 10000)
-                    if 0.01 <= mult <= 10000:
-                        multipliers.append(mult)
-                except ValueError:
-                    continue
-        
-        return multipliers
-    
-    def parse_multipliers_from_file(self, filepath):
-        """
-        Parse multipliers from a text file.
-        
-        Args:
-            filepath: Path to text file containing multipliers
-            
-        Returns:
-            List of float multipliers
-        """
-        try:
-            with open(filepath, 'r') as f:
-                text = f.read()
-            return self.parse_multipliers_from_text(text)
-        except Exception as e:
-            print(f"❌ Error reading file: {e}")
-            return []
-    
-    def load_from_manual_input(self):
-        """
-        Interactive manual input of multipliers.
-        
-        Returns:
-            List of float multipliers
-        """
-        print("\n" + "="*80)
-        print("📝 MANUAL HISTORY INPUT")
-        print("="*80)
-        print("\nYou can input previous round multipliers in several ways:")
-        print("  1. Paste all multipliers (press Enter twice when done)")
-        print("  2. Load from file")
-        print("  3. Skip manual input")
-        print("="*80)
-        
-        choice = input("\nChoice (1/2/3): ").strip()
-        
-        if choice == '1':
-            return self._input_paste_mode()
-        elif choice == '2':
-            return self._input_file_mode()
-        else:
-            print("\n⏭️  Skipping manual history input")
-            return []
-    
-    def _input_paste_mode(self):
-        """Get multipliers from paste input."""
-        print("\n📋 PASTE MODE")
-        print("="*80)
-        print("Paste your multipliers (one per line or space-separated)")
-        print("Press Enter twice (empty line) when done:")
-        print("-"*80)
-        
-        lines = []
-        empty_count = 0
-        
-        while empty_count < 2:
-            try:
-                line = input()
-                if not line.strip():
-                    empty_count += 1
-                else:
-                    empty_count = 0
-                    lines.append(line)
-            except EOFError:
-                break
-        
-        text = '\n'.join(lines)
-        multipliers = self.parse_multipliers_from_text(text)
-        
-        print(f"\n✅ Parsed {len(multipliers)} multipliers")
-        if multipliers:
-            print(f"📊 Range: {min(multipliers):.2f}x - {max(multipliers):.2f}x")
-            print(f"📈 Average: {sum(multipliers)/len(multipliers):.2f}x")
-        
-        return multipliers
-    
-    def _input_file_mode(self):
-        """Get multipliers from file."""
-        print("\n📁 FILE MODE")
-        print("="*80)
-        filepath = input("Enter file path: ").strip().strip('"').strip("'")
-        
-        if not os.path.exists(filepath):
-            print(f"❌ File not found: {filepath}")
-            return []
-        
-        multipliers = self.parse_multipliers_from_file(filepath)
-        
-        print(f"\n✅ Parsed {len(multipliers)} multipliers from file")
-        if multipliers:
-            print(f"📊 Range: {min(multipliers):.2f}x - {max(multipliers):.2f}x")
-            print(f"📈 Average: {sum(multipliers)/len(multipliers):.2f}x")
-        
-        return multipliers
-    
-    def save_to_csv(self, multipliers, append=True):
-        """
-        Save multipliers to CSV file.
-        
-        Args:
-            multipliers: List of multipliers to save
-            append: If True, append to existing file; if False, overwrite
-        """
-        mode = 'a' if append and os.path.exists(self.csv_file) else 'w'
-        file_exists = os.path.exists(self.csv_file) and append
-        
-        try:
-            with open(self.csv_file, mode, newline='') as f:
-                writer = csv.writer(f)
-                
-                # Write header if new file (must match history_tracker.py schema!)
-                if not file_exists:
-                    writer.writerow([
-                        'timestamp', 'round_id', 'multiplier',
-                        'bet_placed', 'stake_amount', 'cashout_time',
-                        'profit_loss', 'model_prediction', 'model_confidence',
-                        'model_predicted_range_low', 'model_predicted_range_high',
-                        'pos2_confidence', 'pos2_target_multiplier', 'pos2_burst_probability',
-                        'pos2_phase', 'pos2_rules_triggered'
-                    ])
-                
-                # Write multipliers (must match 16-column schema!)
-                for mult in multipliers:
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    round_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
-
-                    writer.writerow([
-                        timestamp,
-                        round_id,
-                        mult,
-                        False,  # bet_placed
-                        0,      # stake_amount
-                        0,      # cashout_time
-                        0,      # profit_loss
-                        0,      # model_prediction
-                        0,      # model_confidence
-                        0,      # model_predicted_range_low
-                        0,      # model_predicted_range_high
-                        0,      # pos2_confidence
-                        0,      # pos2_target_multiplier
-                        0,      # pos2_burst_probability
-                        'manual',  # pos2_phase
-                        ''      # pos2_rules_triggered
-                    ])
-            
-            print(f"\n✅ Saved {len(multipliers)} multipliers to {self.csv_file}")
-            return True
-        except Exception as e:
-            print(f"\n❌ Error saving to CSV: {e}")
-            return False
-    
-    def load_history_for_tracker(self, history_tracker):
-        """
-        Load manual history into RoundHistoryTracker.
-        
-        Args:
-            history_tracker: RoundHistoryTracker instance
-            
-        Returns:
-            int: Number of rounds loaded
-        """
-        # Get manual input
-        multipliers = self.load_from_manual_input()
-        
-        if not multipliers:
-            return 0
-        
-        # Ask if user wants to save to CSV
-        save_choice = input("\n💾 Save to CSV? (y/n, default: y): ").strip().lower()
-        if save_choice != 'n':
-            self.save_to_csv(multipliers, append=True)
-        
-        # Load into tracker
-        print(f"\n📥 Loading {len(multipliers)} rounds into tracker...")
-        
-        count = 0
-        for mult in multipliers:
-            try:
-                # Add to history tracker as observed (non-bet) rounds
-                history_tracker.log_round(
-                    multiplier=mult,
-                    bet_placed=False,
-                    stake=0,
-                    cashout_time=0,
-                    profit_loss=0,
-                    prediction=0,
-                    confidence=0,
-                    pred_range=(0, 0)
-                )
-                count += 1
-            except Exception as e:
-                print(f"⚠️  Error logging round {mult}: {e}")
-                continue
-        
-        print(f"✅ Successfully loaded {count} rounds")
-
-        # Get recent rounds to show total history size
-        recent_df = history_tracker.get_recent_rounds(10000)
-        if not recent_df.empty:
-            print(f"📊 Total history size: {len(recent_df)}")
-
-        return count
-    
-    def show_statistics(self, multipliers):
-        """Show statistics about loaded multipliers."""
-        if not multipliers:
-            return
-        
-        print("\n" + "="*80)
-        print("📊 LOADED HISTORY STATISTICS")
-        print("="*80)
-        
-        # Basic stats
-        print(f"Total rounds:     {len(multipliers)}")
-        print(f"Min multiplier:   {min(multipliers):.2f}x")
-        print(f"Max multiplier:   {max(multipliers):.2f}x")
-        print(f"Average:          {sum(multipliers)/len(multipliers):.2f}x")
-        print(f"Median:           {sorted(multipliers)[len(multipliers)//2]:.2f}x")
-        
-        # Range distribution
-        low = sum(1 for m in multipliers if m < 2.0)
-        medium = sum(1 for m in multipliers if 2.0 <= m < 10.0)
-        high = sum(1 for m in multipliers if m >= 10.0)
-        
-        print(f"\n📈 Range Distribution:")
-        print(f"  Low (< 2x):      {low:4d} ({low/len(multipliers)*100:5.1f}%)")
-        print(f"  Medium (2-10x):  {medium:4d} ({medium/len(multipliers)*100:5.1f}%)")
-        print(f"  High (>= 10x):   {high:4d} ({high/len(multipliers)*100:5.1f}%)")
-        
-        # Notable multipliers
-        very_high = [m for m in multipliers if m >= 100]
-        if very_high:
-            print(f"\n🚀 Very High Multipliers (>= 100x):")
-            for m in sorted(very_high, reverse=True)[:5]:
-                print(f"  {m:.2f}x")
-        
-        print("="*80)
-
-
-def integrate_manual_history_with_bot(bot):
-    """
-    Integrate manual history loading with the bot.
-    
-    Args:
-        bot: AviatorBotML instance
-        
-    Returns:
-        int: Number of rounds loaded
-    """
-    if not bot.history_tracker:
-        print("⚠️  No history tracker available")
-        return 0
-    
-    loader = ManualHistoryLoader(csv_file="aviator_rounds_history.csv")
-    
-    # Check if CSV exists and has data
-    if os.path.exists(loader.csv_file):
-        print(f"\n📁 Found existing history file: {loader.csv_file}")
-        
-        # Count existing rounds
-        try:
-            with open(loader.csv_file, 'r') as f:
-                existing_count = sum(1 for _ in f) - 1  # Subtract header
-            print(f"📊 Existing rounds in file: {existing_count}")
-        except:
-            existing_count = 0
-    
-    # Ask if user wants to add manual history
-    print("\n" + "="*80)
-    add_manual = input("📝 Add manual history for better predictions? (y/n, default: y): ").strip().lower()
-    
-    if add_manual == 'n':
-        print("⏭️  Skipping manual history")
-        return 0
-    
-    # Load manual history
-    count = loader.load_history_for_tracker(bot.history_tracker)
-    
-    if count > 0:
-        # Show statistics
-        loader.show_statistics(bot.history_tracker.get_recent_multipliers(count))
-        
-        # Update ML model if needed
-        if bot.ml_generator:
-            print("\n🤖 ML models will use this history for predictions")
-    
-    return count
-
-if __name__ == "__main__":
-    # Test the loader
-    print("="*80)
-    print("🧪 MANUAL HISTORY LOADER - TEST MODE")
-    print("="*80)
+        print(f"\nSaved to {loader.csv_file}")

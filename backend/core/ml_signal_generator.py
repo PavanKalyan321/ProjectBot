@@ -414,7 +414,7 @@ class MLSignalGenerator:
 
     def get_top_multipliers_last_hour(self, top_n=10):
         """
-        Get top N highest multipliers from the last hour.
+        Get top N highest UNIQUE multipliers from the last hour.
         Assumes average round duration is ~10 seconds (6 rounds per minute, 360 rounds per hour).
 
         Args:
@@ -440,60 +440,138 @@ class MLSignalGenerator:
                 position = len(recent_rounds) - list(recent_rounds.index).index(idx) - 1
                 multipliers_data.append((mult, position, timestamp))
 
-            # Sort by multiplier descending and get top N
-            top_multipliers = sorted(multipliers_data, key=lambda x: x[0], reverse=True)[:top_n]
+            # Sort by multiplier descending
+            sorted_data = sorted(multipliers_data, key=lambda x: x[0], reverse=True)
 
-            return top_multipliers
+            # Remove duplicates by multiplier value (keep first/highest occurrence)
+            seen_multipliers = set()
+            unique_top = []
+
+            for mult, position, timestamp in sorted_data:
+                # Round to 2 decimal places to catch near-duplicates
+                rounded_mult = round(mult, 2)
+
+                if rounded_mult not in seen_multipliers:
+                    seen_multipliers.add(rounded_mult)
+                    unique_top.append((mult, position, timestamp))
+
+                    # Stop when we have enough unique multipliers
+                    if len(unique_top) >= top_n:
+                        break
+
+            return unique_top
 
         except Exception as e:
             print(f"Error getting top multipliers: {e}")
             return []
 
+    def get_visual_pattern_summary(self):
+        """
+        Generate a visual representation of recent patterns and identify current trend.
+
+        Returns:
+            tuple: (visual_string, pattern_description)
+        """
+        try:
+            # Get last 15 rounds for visualization
+            recent_rounds = self.history_tracker.get_recent_multipliers(15)
+
+            if not recent_rounds or len(recent_rounds) < 10:
+                return "", "Insufficient data"
+
+            # Analyze last 10 rounds
+            last_10 = recent_rounds[-10:]
+
+            # Count patterns
+            low_count = sum(1 for m in last_10 if m < 2.0)
+            medium_count = sum(1 for m in last_10 if 2.0 <= m < 10.0)
+            high_count = sum(1 for m in last_10 if m >= 10.0)
+            very_high_count = sum(1 for m in last_10 if m >= 20.0)
+
+            # Create visual bar chart
+            visual_lines = []
+            visual_lines.append("  LAST 10 ROUNDS:")
+            visual_lines.append("  " + "-" * 50)
+
+            for i, mult in enumerate(last_10, 1):
+                # Determine color/category
+                if mult < 2.0:
+                    symbol = "."
+                    label = "LOW"
+                elif mult < 5.0:
+                    symbol = "o"
+                    label = "MED"
+                elif mult < 10.0:
+                    symbol = "O"
+                    label = "MED"
+                elif mult < 20.0:
+                    symbol = "*"
+                    label = "HIGH"
+                else:
+                    symbol = "#"
+                    label = "VERY HIGH"
+
+                # Create bar (scaled)
+                bar_length = min(int(mult * 2), 40)
+                bar = symbol * bar_length
+
+                visual_lines.append(f"  {i:2d}. [{label:9s}] {bar} {mult:.2f}x")
+
+            visual_lines.append("  " + "-" * 50)
+
+            # Determine current pattern
+            if low_count >= 7:
+                pattern = "COLD STREAK - High multiplier likely soon (Position 2 active)"
+            elif very_high_count >= 2:
+                pattern = "BURST PATTERN - Just had high mult(s), expect cooldown"
+            elif high_count >= 3:
+                pattern = "HOT PHASE - Multiple high multipliers detected"
+            elif low_count >= 4 and medium_count >= 4:
+                pattern = "MIXED PATTERN - No clear trend"
+            elif medium_count >= 6:
+                pattern = "STABLE PHASE - Consistent medium multipliers"
+            else:
+                pattern = "RANDOM PATTERN - No clear pattern detected"
+
+            # Add legend
+            visual_lines.append("")
+            visual_lines.append("  LEGEND: . = <2x | o/O = 2-10x | * = 10-20x | # = 20x+")
+
+            return "\n".join(visual_lines), pattern
+
+        except Exception as e:
+            return "", f"Error: {e}"
+
     def log_highest_multipliers(self):
         """
-        Log the highest multipliers for 5, 10, 20, and 30 minute windows.
-        Also shows top 10 multipliers from the last hour.
+        Log a simple one-liner summary of highest multipliers and current pattern.
         """
         try:
             highest_mults = self.get_highest_multipliers_by_time()
 
             if not highest_mults:
-                print("Unable to retrieve highest multipliers")
                 return
 
-            print("\n" + "="*60)
-            print("HIGHEST MULTIPLIERS BY TIME WINDOW")
-            print("="*60)
+            # Get max values from each time window
+            max_5min = highest_mults.get('5min', {}).get('max_multiplier', 0)
+            max_10min = highest_mults.get('10min', {}).get('max_multiplier', 0)
+            max_20min = highest_mults.get('20min', {}).get('max_multiplier', 0)
+            max_30min = highest_mults.get('30min', {}).get('max_multiplier', 0)
 
-            for window_name in ['5min', '10min', '20min', '30min']:
-                data = highest_mults.get(window_name, {})
-                max_mult = data.get('max_multiplier', 0)
-                rounds = data.get('rounds_analyzed', 0)
-                timestamp = data.get('timestamp', 'N/A')
+            # Get top multiplier from last hour
+            top_mults = self.get_top_multipliers_last_hour(top_n=1)
+            top_hour = top_mults[0][0] if top_mults else 0
 
-                print(f"{window_name:>8} | Max: {max_mult:6.2f}x | Rounds: {rounds:3d} | Time: {timestamp}")
+            # Print simple one-liner
+            print(f"  [PEAK] Last hour: {top_hour:.2f}x | 5m: {max_5min:.2f}x | 10m: {max_10min:.2f}x | 20m: {max_20min:.2f}x | 30m: {max_30min:.2f}x")
 
-            print("="*60)
-
-            # Get and display top 10 multipliers from last hour
-            top_mults = self.get_top_multipliers_last_hour(top_n=10)
-
-            if top_mults:
-                print("\n" + "="*60)
-                print("TOP 10 MULTIPLIERS IN LAST HOUR")
-                print("="*60)
-                print(f"{'RANK':<6} | {'MULTIPLIER':<12} | {'ROUNDS AGO':<12} | {'TIME'}")
-                print("-"*60)
-
-                for rank, (mult, rounds_ago, timestamp) in enumerate(top_mults, 1):
-                    print(f"{rank:<6} | {mult:>10.2f}x | {rounds_ago:>10d} | {timestamp}")
-
-                print("="*60 + "\n")
-            else:
-                print("\n(No data available for top multipliers)\n")
+            # Get and print pattern only (no visual chart)
+            _, pattern = self.get_visual_pattern_summary()
+            if pattern:
+                print(f"  [PATTERN] {pattern}")
 
         except Exception as e:
-            print(f"Error logging highest multipliers: {e}")
+            pass  # Silently skip if error
 
     def analyze_recent_patterns(self, n_rounds=10):
         """
