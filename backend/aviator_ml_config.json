@@ -23,7 +23,7 @@
     789,
     -6
   ],
-  "cashout_delay": 3.0,
+  "cashout_delay": 5.0,
   "initial_stake": 100,
   "max_stake": 200,
   "stake_increase_percent": 37
