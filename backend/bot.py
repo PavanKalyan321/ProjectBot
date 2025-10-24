@@ -12,9 +12,13 @@ from utils.betting_helpers import (
 from config import ConfigManager
 from readregion import MultiplierReader
 from core import GameStateDetector
+from core.history_tracker import RoundHistoryTracker
 
 # Import operating modes
 from modes import run_observation_mode, run_dry_run_mode
+
+# ✨ IMPORT AUTOML PREDICTOR
+from automl_predictor import get_predictor, predict_next_round, add_round_result
 
 import time
 import pyautogui
@@ -38,6 +42,10 @@ class AviatorBot:
         self.config_manager = ConfigManager()
         self.multiplier_reader = None
         self.detector = None
+
+        # ✨ INITIALIZE AUTOML PREDICTOR
+        self.automl_predictor = get_predictor()
+        self.use_automl_predictions = True  # Flag to enable/disable AutoML
 
         # HARDCODED COORDINATES - Set these to match your screen
         self.MULTIPLIER_REGION = {"top": 506, "left": 330, "width": 322, "height": 76}
@@ -71,6 +79,11 @@ class AviatorBot:
             "completed": False
         }
 
+        # ✨ AutoML prediction tracking
+        self.current_automl_prediction = None
+        self.current_automl_ensemble = None
+        self.current_automl_recommendation = None
+
         # Statistics
         self.stats = {
             "rounds_played": 0,
@@ -86,6 +99,7 @@ class AviatorBot:
         # History tracking
         self.history_file = "aviator_rounds_history.csv"
         self.prediction_history = deque(maxlen=10)
+        self.history_tracker = RoundHistoryTracker()  # Initialize here
         self._initialize_history_file()
 
     def _initialize_history_file(self):
@@ -122,24 +136,6 @@ class AviatorBot:
                        pos2_rules_triggered=None):
         """
         Log round data to CSV file in the specified format.
-        
-        Args:
-            round_id: Unique round identifier
-            final_multiplier: Final crash multiplier of the round
-            cashout_multiplier: Multiplier at which bot cashed out (use for cashout_time)
-            bet_placed: Boolean indicating if bet was placed
-            stake: Stake amount
-            profit_loss: Profit or loss amount
-            cashout_time: Cashout multiplier (same as cashout_multiplier)
-            model_prediction: ML model prediction
-            model_confidence: ML model confidence score
-            model_predicted_range_low: Lower bound of predicted range
-            model_predicted_range_high: Upper bound of predicted range
-            pos2_confidence: Position 2 confidence score
-            pos2_target_multiplier: Position 2 target multiplier
-            pos2_burst_probability: Position 2 burst probability
-            pos2_phase: Position 2 phase identifier
-            pos2_rules_triggered: Position 2 rules that were triggered
         """
         try:
             with open(self.history_file, 'a', newline='') as f:
@@ -173,6 +169,51 @@ class AviatorBot:
                 ])
         except Exception as e:
             print(f"⚠️  Failed to log to history: {e}")
+
+    # ✨ NEW METHOD: Train AutoML and get predictions
+    def get_automl_predictions(self):
+        """
+        Get predictions from AutoML models.
+        Returns: (predictions, ensemble, recommendation) or (None, None, None)
+        """
+        if not self.use_automl_predictions:
+            return None, None, None
+        
+        try:
+            print("\n" + "="*80)
+            print("🤖 GETTING AUTOML PREDICTIONS...")
+            print("="*80)
+            
+            # Get predictions (this will also print the table)
+            predictions, ensemble, recommendation = predict_next_round(self.history_file)
+            
+            return predictions, ensemble, recommendation
+            
+        except Exception as e:
+            print(f"⚠️  AutoML prediction error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None, None, None
+
+    # ✨ NEW METHOD: Update AutoML with round result
+    def update_automl_with_result(self, final_multiplier):
+        """
+        Update AutoML predictor with the final multiplier from completed round.
+        This trains the model incrementally.
+        
+        Args:
+            final_multiplier: The final crash multiplier
+        """
+        if not self.use_automl_predictions or final_multiplier <= 0:
+            return
+        
+        try:
+            print(f"\n🧠 Training AutoML with result: {final_multiplier:.2f}x")
+            add_round_result(final_multiplier)
+            print("✅ AutoML model updated")
+            
+        except Exception as e:
+            print(f"⚠️  AutoML update error: {e}")
 
     def initialize_components(self):
         """Initialize multiplier reader and detector with validation."""
@@ -235,7 +276,7 @@ class AviatorBot:
         
         # Initialize multiplier reader
         self.multiplier_reader = MultiplierReader(region_dict)
-        
+
         # Convert region_dict back to [x1, y1, x2, y2] format for detector
         detector_region = [
             region_dict["left"],
@@ -243,9 +284,12 @@ class AviatorBot:
             region_dict["left"] + region_dict["width"],
             region_dict["top"] + region_dict["height"]
         ]
-        
+
         # Initialize detector (only for bet verification - NOT for game state)
         self.detector = GameStateDetector(detector_region)
+
+        # Initialize history tracker
+        self.history_tracker = RoundHistoryTracker()
         
         # Test multiplier reader (3 attempts)
         print("\n🧪 Testing multiplier reader...")
@@ -307,12 +351,22 @@ class AviatorBot:
             if target_input:
                 self.target_multiplier = float(target_input)
             
+            # ✨ ASK ABOUT AUTOML
+            automl_choice = input(f"\nUse AutoML predictions? (y/n, default: y): ").strip().lower()
+            if automl_choice == 'n':
+                self.use_automl_predictions = False
+                print("   📊 AutoML predictions disabled")
+            else:
+                self.use_automl_predictions = True
+                print("   🤖 AutoML predictions enabled")
+            
             self.current_stake = self.initial_stake
             
             print(f"\n✅ Settings configured:")
             print(f"   Initial Stake: {self.initial_stake}")
             print(f"   Max Stake: {self.max_stake}")
             print(f"   Target Multiplier: {self.target_multiplier}x")
+            print(f"   AutoML: {'Enabled' if self.use_automl_predictions else 'Disabled'}")
             
         except ValueError as e:
             print(f"⚠️  Invalid input: {e}. Using defaults.")
@@ -706,12 +760,14 @@ class AviatorBot:
 
     def run(self):
         """Main bot loop - logs ALL completed rounds to CSV with both cashout and final multipliers."""
-        print("\n" + "="*80)
+        # print("\n" + "="*80)
         print("🚀 AVIATOR BOT STARTED")
-        print("="*80)
+        # print("="*80)
         print("📡 Using MultiplierReader for real-time game state detection")
         print("📝 Logging ALL rounds to CSV (bet or no bet)")
         print("🎯 Tracking both cashout multiplier AND final round multiplier")
+        if self.use_automl_predictions:
+            print("🤖 AutoML predictions ENABLED - Training after each round")
         print("Press Ctrl+C to stop.\n")
 
         round_number = 0
@@ -720,9 +776,13 @@ class AviatorBot:
         try:
             while True:
                 round_number += 1
-                print(f"\n{'='*80}")
+                # print(f"\n{'='*80}")
                 print(f"🎮 ROUND #{round_number:03d}")
-                print(f"{'='*80}")
+                # print(f"{'='*80}")
+                
+                # ✨ GET AUTOML PREDICTIONS BEFORE ROUND STARTS
+                if self.use_automl_predictions:
+                    self.current_automl_prediction, self.current_automl_ensemble, self.current_automl_recommendation = self.get_automl_predictions()
                 
                 # Reset tracking for new round
                 self.bet_placed_this_round = False
@@ -935,6 +995,10 @@ class AviatorBot:
                     else cashout_mult
                 )
                 
+                # ✨ TRAIN AUTOML WITH ROUND RESULT (AFTER ROUND COMPLETES)
+                if self.use_automl_predictions and final_multiplier_to_log > 0:
+                    self.update_automl_with_result(final_multiplier_to_log)
+                
                 # Log to CSV with validated multipliers
                 self._log_to_history(
                     round_id=round_number,
@@ -961,7 +1025,7 @@ class AviatorBot:
 
     def print_dry_run_stats(self, cumulative_profit):
         """Print dry run statistics."""
-        print("\n" + "="*80)
+        # print("\n" + "="*80)
         print("📊 DRY RUN FINAL STATISTICS")
         print("="*80)
         print(f"Rounds played:        {self.stats['rounds_played']}")
@@ -983,7 +1047,7 @@ class AviatorBot:
             print(f"Average bet:          {avg_bet:.2f}")
         
         print(f"\n💾 Data saved to: {self.history_file}")
-        print("="*80)
+        # print("="*80)
 
     def print_final_stats(self, cumulative_profit):
         """Print final statistics."""
@@ -1009,7 +1073,7 @@ class AviatorBot:
             print(f"Average bet:       {avg_bet:.2f}")
         
         print(f"\n💾 Data saved to: {self.history_file}")
-        print("="*80)
+        # print("="*80)
 
 
 def main():
@@ -1060,6 +1124,35 @@ def main():
     if mode != 'observation':
         bot.get_user_settings()
 
+    # ✨ LOAD HISTORICAL DATA FOR AUTOML TRAINING
+    if bot.use_automl_predictions:
+        print("\n" + "="*80)
+        print("🤖 INITIALIZING AUTOML MODELS")
+        print("="*80)
+        
+        # Load from CSV history file if it exists
+        if os.path.exists(bot.history_file):
+            print(f"📂 Loading historical data from {bot.history_file}...")
+            rounds_loaded = bot.automl_predictor.load_history_from_csv(bot.history_file)
+            if rounds_loaded > 0:
+                print(f"✅ Loaded {rounds_loaded} rounds for training")
+                print("🧠 AutoML models are ready with historical context")
+            else:
+                print("⚠️  No valid historical data found - models will learn from scratch")
+        else:
+            print("📝 No history file found - models will train as rounds are played")
+        
+        # Try loading manual history as well
+        try:
+            from manual_history_loader import integrate_manual_history_with_bot
+            manual_rounds = integrate_manual_history_with_bot(bot)
+            if manual_rounds > 0:
+                print(f"✅ Additionally loaded {manual_rounds} rounds from manual history")
+        except Exception as e:
+            print(f"ℹ️  Manual history loader not available: {e}")
+        
+        print("="*80)
+
     # Confirm before starting
     print("\n" + "="*80)
     print("⚠️  IMPORTANT REMINDERS")
@@ -1083,6 +1176,10 @@ def main():
     print(f"   6. History will be saved to: {bot.history_file}")
     print("   7. ALL rounds will be logged (bet or observed)")
     print("   8. CSV tracks BOTH cashout multiplier AND final round multiplier")
+    
+    if bot.use_automl_predictions:
+        print("   9. 🤖 AutoML is ENABLED - Training after every round")
+        print("   10. Predictions will improve as more data is collected")
     
     confirm = input("\n✅ Ready to start? (yes/no): ").strip().lower()
     if confirm != 'yes':
