@@ -10,7 +10,7 @@ from utils.betting_helpers import (
 
 # Import from bot_modular.py components
 from config import ConfigManager
-from readregion import MultiplierReader
+from readregion import MultiplierReader, AviatorHistoryLogger
 from core import GameStateDetector
 from core.history_tracker import RoundHistoryTracker
 
@@ -97,14 +97,15 @@ class AviatorBot:
         }
         
         # History tracking
-        self.history_file = "aviator_rounds_history.csv"
+        self.history_file = "aviator_rounds_history.csv"  # Use the same file as readregion.py
         self.prediction_history = deque(maxlen=10)
         self.history_tracker = RoundHistoryTracker()  # Initialize here
+        self.logger = AviatorHistoryLogger(self.history_file)  # Use logger from readregion.py
         self._initialize_history_file()
 
     def _initialize_history_file(self):
         """Initialize CSV history file if it doesn't exist."""
-        if not os.path.exists(self.history_file):
+        if self.history_file and not os.path.exists(self.history_file):
             with open(self.history_file, 'w', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow([
@@ -127,48 +128,7 @@ class AviatorBot:
                 ])
             print(f"📝 Created history file: {self.history_file}")
 
-    def _log_to_history(self, round_id, final_multiplier, cashout_multiplier, 
-                       bet_placed, stake, profit_loss, cashout_time=None,
-                       model_prediction=None, model_confidence=None,
-                       model_predicted_range_low=None, model_predicted_range_high=None,
-                       pos2_confidence=None, pos2_target_multiplier=None,
-                       pos2_burst_probability=None, pos2_phase=None,
-                       pos2_rules_triggered=None):
-        """
-        Log round data to CSV file in the specified format.
-        """
-        try:
-            with open(self.history_file, 'a', newline='') as f:
-                writer = csv.writer(f)
-                
-                # Use cashout_multiplier for cashout_time if not provided
-                if cashout_time is None:
-                    cashout_time = cashout_multiplier if cashout_multiplier > 0 else ""
-                
-                print(f"📝 Logging Round #{round_id}: Multiplier={final_multiplier:.2f}x, "
-                      f"Cashout={cashout_time if cashout_time else 'N/A'}, "
-                      f"Bet Placed={bet_placed}")
-                
-                writer.writerow([
-                    datetime.now().isoformat(),
-                    round_id,
-                    f"{final_multiplier:.2f}",
-                    bet_placed,
-                    stake if stake > 0 else "",
-                    f"{cashout_time:.2f}" if cashout_time and cashout_time != "" else "",
-                    f"{profit_loss:.2f}" if profit_loss != 0 else "",
-                    model_prediction if model_prediction is not None else "",
-                    f"{model_confidence:.4f}" if model_confidence is not None else "",
-                    f"{model_predicted_range_low:.2f}" if model_predicted_range_low is not None else "",
-                    f"{model_predicted_range_high:.2f}" if model_predicted_range_high is not None else "",
-                    f"{pos2_confidence:.4f}" if pos2_confidence is not None else "",
-                    f"{pos2_target_multiplier:.2f}" if pos2_target_multiplier is not None else "",
-                    f"{pos2_burst_probability:.4f}" if pos2_burst_probability is not None else "",
-                    pos2_phase if pos2_phase is not None else "",
-                    pos2_rules_triggered if pos2_rules_triggered is not None else ""
-                ])
-        except Exception as e:
-            print(f"⚠️  Failed to log to history: {e}")
+
 
     # ✨ NEW METHOD: Train AutoML and get predictions
     def get_automl_predictions(self):
@@ -274,8 +234,8 @@ class AviatorBot:
         except Exception as e:
             print(f"⚠️  Could not validate region: {e}")
         
-        # Initialize multiplier reader
-        self.multiplier_reader = MultiplierReader(region_dict)
+        # Initialize multiplier reader with logging disabled to avoid duplicate logging
+        self.multiplier_reader = MultiplierReader(region_dict, enable_logging=False)
 
         # Convert region_dict back to [x1, y1, x2, y2] format for detector
         detector_region = [
@@ -999,15 +959,9 @@ class AviatorBot:
                 if self.use_automl_predictions and final_multiplier_to_log > 0:
                     self.update_automl_with_result(final_multiplier_to_log)
                 
-                # Log to CSV with validated multipliers
-                self._log_to_history(
-                    round_id=round_number,
-                    final_multiplier=final_multiplier_to_log,
-                    cashout_multiplier=cashout_multiplier_to_log,
-                    bet_placed=round_bet_placed,
-                    stake=round_stake,
-                    profit_loss=round_profit_loss
-                )
+                # Log to CSV with validated multipliers using logger from readregion.py
+                if final_multiplier_to_log > 0:
+                    self.logger.log_round(final_multiplier_to_log)
 
                 # Reset for next round
                 self.multiplier_reader.reset()

@@ -386,18 +386,18 @@ def main_loop_test():
     """Test loop for multiplier reader with automatic logging"""
     # Define multiplier region
     multiplier_region = {"top": 506, "left": 330, "width": 322, "height": 76}
-    
+
     # Initialize with logging enabled
     reader = MultiplierReader(multiplier_region, enable_logging=True)
-    
+
     print("Starting multiplier tracker with AUTO-LOGGING...")
     print("Rounds will be saved to aviator_rounds_history.csv")
     print("Press Ctrl+C to stop.\n")
-    
+
     try:
         while True:
             mult = reader.read_current_multiplier()
-            
+
             if mult:
                 # Flight in progress - print on same line with carriage return
                 print(f"{mult:.2f}x", end='\r', flush=True)
@@ -407,11 +407,11 @@ def main_loop_test():
                 if not reader.last_print_was_awaiting:
                     print("\nAWAITING NEXT FLIGHT", flush=True)
                     reader.last_print_was_awaiting = True
-            
+
             time.sleep(0.03)
     except KeyboardInterrupt:
         print("\n\nStopped.")
-        
+
         # Show session statistics
         if reader.logger:
             print("\n=== Session Statistics ===")
@@ -423,5 +423,17 @@ def main_loop_test():
                 print(f"Avg Multiplier: {stats['avg_multiplier']:.2f}x")
 
 
-if __name__ == "__main__":
+def main_with_bot():
+    """Run the multiplier reader and then start the bot"""
+    print("🚀 Starting Aviator Multiplier Reader with Bot Integration")
+    print("This will first run the multiplier reader, then launch the bot.\n")
+
+    # First run the multiplier reader test
     main_loop_test()
+
+    # After multiplier reader stops, run the bot
+    print("\n🤖 Launching Aviator Bot...")
+    try:
+        run_bot()
+    except Exception as e:
+        print(f"❌ Error running bot: {e}")

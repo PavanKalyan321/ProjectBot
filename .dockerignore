@@ -1,0 +1,45 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Logs and local data
+*.log
+logs/
+*.csv
+*.sqlite3
+*.db
+
+# OS and editor files
+.DS_Store
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env.*
+
+# Misc
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore Dockerfile build context if large data exists
+data/
+
+# Ignore any local credentials
+secrets.json
+local_settings.py
