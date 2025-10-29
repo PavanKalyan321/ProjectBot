@@ -1,2 +1,5 @@
 timestamp,round_id,actual_multiplier,ensemble_prediction,ensemble_range,ensemble_confidence,consensus_range,consensus_strength,recommendation_should_bet,recommendation_target,recommendation_risk,prediction_error,range_correct,model_1_pred,model_2_pred,model_3_pred,model_4_pred,model_5_pred,model_6_pred,model_7_pred,model_8_pred,model_9_pred,model_10_pred
 2025-10-29T17:09:13.401184,2,4.24,8.44,3.0+x,83.69,3.0+x,87.5,False,8.44,UNKNOWN,4.20,1,10.00,10.00,10.00,10.00,6.35,2.43,10.00,10.00,2.90,10.00,10.00,3.36,10.00,10.00,10.00,10.00
+2025-10-29T22:56:40.830045,47,12.85,1.64,1.5-2.0x,90.66,1.5-2.0x,100.0,False,1.64,UNKNOWN,11.21,0,1.62,1.67,1.63,1.64,1.66,1.60,1.64,1.65,1.61,1.63,1.62,1.71,1.66,1.64,1.61,1.63
+2025-10-29T22:57:00.546338,48,2.62,8.39,3.0+x,90.66,3.0+x,95.3,False,8.39,UNKNOWN,5.77,0,10.00,10.00,10.00,10.00,5.11,2.43,10.00,10.00,2.97,10.00,9.77,4.57,7.92,10.00,8.81,10.00
+2025-10-29T22:57:12.687463,49,1.43,3.20,3.0+x,90.66,2.5-3.0x,41.4,False,3.20,UNKNOWN,1.77,0,3.59,2.93,4.21,4.73,3.81,1.85,5.12,3.08,1.39,2.25,6.65,1.90,2.54,2.97,2.65,2.33
