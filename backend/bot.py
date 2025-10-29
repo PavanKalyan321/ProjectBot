@@ -82,7 +82,7 @@ class AviatorBot:
 
         # Balance tracking
         self.last_balance = None
-        self.hypothetical_balance = 1000.0  # For dry run mode
+        self.hypothetical_balance = 10000.0  # For dry run mode
         
         # Round tracking
         self.last_logged_mult = None
