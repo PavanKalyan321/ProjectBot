@@ -28,6 +28,26 @@ import csv
 from datetime import datetime
 from collections import deque
 
+# Model names for AutoML selection
+MODEL_NAMES = {
+    1: 'H2O AutoML',
+    2: 'Google AutoML',
+    3: 'Auto-sklearn',
+    4: 'LSTM Model',
+    5: 'AutoGluon',
+    6: 'PyCaret',
+    7: 'Random Forest',
+    8: 'CatBoost',
+    9: 'LightGBM',
+    10: 'XGBoost',
+    11: 'MLP Neural Net',
+    12: 'TPOT Genetic',
+    13: 'AutoKeras',
+    14: 'Auto-PyTorch',
+    15: 'MLBox',
+    16: 'TransmogrifAI'
+}
+
 class AviatorBot:
     """Simple Aviator Bot with multiplier-based cashout using MultiplierReader directly."""
 
@@ -293,7 +313,6 @@ class AviatorBot:
         return True
 
     def get_user_settings(self):
-        """Get stake, max stake, and target multiplier from user."""
         print("\n" + "="*80)
         print("⚙️  CONFIGURATION")
         print("="*80)
@@ -311,14 +330,55 @@ class AviatorBot:
             if target_input:
                 self.target_multiplier = float(target_input)
             
-            # ✨ ASK ABOUT AUTOML
             automl_choice = input(f"\nUse AutoML predictions? (y/n, default: y): ").strip().lower()
             if automl_choice == 'n':
                 self.use_automl_predictions = False
                 print("   📊 AutoML predictions disabled")
             else:
                 self.use_automl_predictions = True
-                print("   🤖 AutoML predictions enabled")
+                
+                print("\n📋 SELECT MODELS TO USE:")
+                print("   1. All models (default)")
+                print("   2. Select specific models")
+                
+                model_choice = input("\nChoice (1/2, default: 1): ").strip()
+                
+                if model_choice == '2':
+                    print("\nAvailable models:")
+                    for i in range(1, 17):
+                        print(f"   {i}. {MODEL_NAMES[i]}")
+                    
+                    print("\nEnter model numbers separated by commas (e.g., 1,2,5,10)")
+                    print("Or press Enter to use all models")
+                    
+                    models_input = input("Models: ").strip()
+                    
+                    if models_input:
+                        try:
+                            self.selected_models = [int(x.strip()) for x in models_input.split(',')]
+                            self.selected_models = [m for m in self.selected_models if 1 <= m <= 16]
+                            
+                            if not self.selected_models:
+                                print("   ⚠️  Invalid selection, using all models")
+                                self.selected_models = None
+                            else:
+                                print(f"   ✅ Selected {len(self.selected_models)} models:")
+                                for m in self.selected_models:
+                                    print(f"      - {MODEL_NAMES[m]}")
+                        except:
+                            print("   ⚠️  Invalid input, using all models")
+                            self.selected_models = None
+                    else:
+                        self.selected_models = None
+                else:
+                    self.selected_models = None
+                
+                if self.selected_models:
+                    print(f"   🤖 AutoML enabled with {len(self.selected_models)} selected models")
+                else:
+                    print(f"   🤖 AutoML enabled with all 16 models")
+                
+                self.automl_predictor = get_predictor(self.selected_models)
             
             self.current_stake = self.initial_stake
             
@@ -331,6 +391,7 @@ class AviatorBot:
         except ValueError as e:
             print(f"⚠️  Invalid input: {e}. Using defaults.")
             self.current_stake = self.initial_stake
+
 
     def _read_balance(self):
         """Read current balance from balance region."""
@@ -718,11 +779,57 @@ class AviatorBot:
                 time.sleep(0.05)
                 continue
 
+    def _log_to_history(self, round_id, final_multiplier, cashout_multiplier, bet_placed, stake, profit_loss):
+        """Log round results to CSV history"""
+        try:
+            import csv
+            from pathlib import Path
+            from datetime import datetime
+            
+            # Create history file if it doesn't exist
+            history_file = Path('bet_history.csv')
+            file_exists = history_file.exists()
+            
+            with open(history_file, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                
+                # Write header if new file
+                if not file_exists:
+                    writer.writerow([
+                        'Timestamp',
+                        'Round ID',
+                        'Final Multiplier',
+                        'Cashout Multiplier',
+                        'Bet Placed',
+                        'Stake',
+                        'Profit/Loss',
+                        'Cumulative P/L'
+                    ])
+                
+                # Calculate cumulative P/L from stats
+                cumulative_pl = self.stats.get('total_profit', 0)
+                
+                # Write data
+                writer.writerow([
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    round_id,
+                    f"{final_multiplier:.2f}",
+                    f"{cashout_multiplier:.2f}" if cashout_multiplier else "N/A",
+                    "Yes" if bet_placed else "No",
+                    f"{stake:.2f}" if stake else "0.00",
+                    f"{profit_loss:+.2f}" if profit_loss else "0.00",
+                    f"{cumulative_pl:+.2f}"
+                ])
+                
+            print(f"✅ Logged round {round_id} to history")
+            
+        except Exception as e:
+            print(f"⚠️ Failed to log to history: {e}")
+            # Don't crash the bot if logging fails
+            
     def run(self):
         """Main bot loop - logs ALL completed rounds to CSV with both cashout and final multipliers."""
-        # print("\n" + "="*80)
         print("🚀 AVIATOR BOT STARTED")
-        # print("="*80)
         print("📡 Using MultiplierReader for real-time game state detection")
         print("📝 Logging ALL rounds to CSV (bet or no bet)")
         print("🎯 Tracking both cashout multiplier AND final round multiplier")
@@ -736,9 +843,9 @@ class AviatorBot:
         try:
             while True:
                 round_number += 1
-                # print(f"\n{'='*80}")
+                print(f"\n{'='*80}")
                 print(f"🎮 ROUND #{round_number:03d}")
-                # print(f"{'='*80}")
+                print(f"{'='*80}")
                 
                 # ✨ GET AUTOML PREDICTIONS BEFORE ROUND STARTS
                 if self.use_automl_predictions:
@@ -762,8 +869,8 @@ class AviatorBot:
                 round_stake = 0
                 round_result = "NOT_PARTICIPATED"
                 round_profit_loss = 0.0
-                final_mult = 0.0  # Initialize final multiplier
-                cashout_mult = 0.0  # Initialize cashout multiplier
+                final_mult = 0.0
+                cashout_mult = 0.0
 
                 # Step 1: Wait for AWAITING NEXT FLIGHT
                 if not self._wait_for_awaiting_state():
@@ -781,15 +888,33 @@ class AviatorBot:
                 
                 time.sleep(0.3)
 
-                # Step 2: Pre-bet checks
+                # Step 2: Pre-bet checks - determine if we should skip betting
+                should_skip_bet = False
+                
                 if self._verify_game_running():
                     print("⚠️  Game already running - will observe only")
-                    round_bet_placed = False
+                    should_skip_bet = True
                 elif self.bet_placed_this_round:
                     print("⚠️  Bet already placed for this round - observing")
-                    round_bet_placed = False
+                    should_skip_bet = True
                 else:
-                    # Step 3: Try to place bet
+                    # ✨ CHECK ML RECOMMENDATION BEFORE PLACING BET
+                    if self.use_automl_predictions and self.current_automl_recommendation:
+                        if not self.current_automl_recommendation.get('should_bet', False):
+                            print("🤖 ML Recommendation: SKIP BET (will observe)")
+                            print(f"   Reason: Consensus: {self.current_automl_recommendation.get('consensus_range', 'N/A')}")
+                            print(f"   Confidence: {self.current_automl_recommendation.get('confidence', 0):.1f}%")
+                            print(f"   Risk Level: {self.current_automl_recommendation.get('risk_level', 'N/A')}")
+                            should_skip_bet = True
+                            round_result = "ML_SKIP"
+                        else:
+                            print("🤖 ML Recommendation: PLACE BET ✅")
+                            print(f"   Target: {self.current_automl_recommendation.get('target_multiplier', 0):.2f}x")
+                            print(f"   Confidence: {self.current_automl_recommendation.get('confidence', 0):.1f}%")
+                            print(f"   Risk Level: {self.current_automl_recommendation.get('risk_level', 'N/A')}")
+                
+                # Step 3: Place bet only if not skipped
+                if not should_skip_bet:
                     print(f"\n💰 Setting stake: {self.current_stake}")
                     if not set_stake_verified(self.STAKE_COORDS, self.current_stake):
                         print("❌ Failed to set stake - will observe only")
@@ -801,7 +926,7 @@ class AviatorBot:
                         # Step 4: Place bet
                         print("🎲 Placing bet...")
                         self.stats["ml_bets_placed"] = self.stats.get("ml_bets_placed", 0)
-                        
+
                         bet_success, bet_reason = place_bet_with_verification(
                             self.BET_BUTTON_COORDS,
                             self.detector,
@@ -819,10 +944,14 @@ class AviatorBot:
                             self.bet_placed_this_round = True
                             round_bet_placed = True
                             round_stake = self.current_stake
-                            
+
                             # Wait for bet to register
                             print("⏳ Waiting for bet to register...")
                             time.sleep(1.0)
+                else:
+                    # Skip betting - just observe
+                    round_bet_placed = False
+                    print("👁️  Skipping bet placement - will observe this round")
 
                 # Step 5: Wait for round to start (whether we bet or not)
                 print("\n⏳ Waiting for round to start...")
@@ -838,7 +967,7 @@ class AviatorBot:
                         round_profit_loss = -round_stake
                         cumulative_profit += round_profit_loss
                         round_result = "CANCELLED"
-                        final_mult = 0.0  # Explicitly set to 0
+                        final_mult = 0.0
                         
                         print(f"\n❌ RESULT: BET CANCELLED")
                         print(f"   💸 Loss: {round_profit_loss:.2f}")
@@ -871,7 +1000,6 @@ class AviatorBot:
                     self.round_state["stake"] = round_stake
                     
                     # We have a bet - monitor and try to cashout
-                    # Now returns 5 values: success, profit, cashout_mult, final_mult, result_type
                     success, profit, cashout_mult, final_mult, result_type = self.monitor_and_cashout(self.target_multiplier)
                     
                     # Update round state
@@ -925,7 +1053,7 @@ class AviatorBot:
                     
                     if crashed and final_mult and final_mult > 0:
                         print(f"   💥 Round ended at {final_mult:.2f}x (observed)")
-                        round_result = "OBSERVED"
+                        round_result = "OBSERVED" if round_result != "ML_SKIP" else "ML_SKIP"
                         self.stats["rounds_observed"] = self.stats.get("rounds_observed", 0) + 1
                         self.round_state["completed"] = True
                     else:
@@ -933,7 +1061,7 @@ class AviatorBot:
                         if self.round_state["final_multiplier"] > 0:
                             final_mult = self.round_state["final_multiplier"]
                             print(f"   💥 Round ended at {final_mult:.2f}x (observed via state)")
-                            round_result = "OBSERVED"
+                            round_result = "OBSERVED" if round_result != "ML_SKIP" else "ML_SKIP"
                             self.stats["rounds_observed"] = self.stats.get("rounds_observed", 0) + 1
                             self.round_state["completed"] = True
                         else:
@@ -942,7 +1070,6 @@ class AviatorBot:
                             round_result = "OBSERVATION_TIMEOUT"
 
                 # CRITICAL: Use round_state as the source of truth for final multiplier
-                # Fallback chain: round_state -> function return -> last_valid_multiplier -> 0
                 final_multiplier_to_log = (
                     self.round_state["final_multiplier"] if self.round_state["final_multiplier"] > 0 
                     else final_mult if final_mult > 0 
@@ -958,8 +1085,18 @@ class AviatorBot:
                 # ✨ TRAIN AUTOML WITH ROUND RESULT (AFTER ROUND COMPLETES)
                 if self.use_automl_predictions and final_multiplier_to_log > 0:
                     self.update_automl_with_result(final_multiplier_to_log)
+                    
+                    # ✨ LOG AUTOML PERFORMANCE
+                    if self.current_automl_prediction and self.current_automl_ensemble and self.current_automl_recommendation:
+                        add_round_result(
+                            final_multiplier_to_log,
+                            round_id=round_number,
+                            predictions=self.current_automl_prediction,
+                            ensemble=self.current_automl_ensemble,
+                            recommendation=self.current_automl_recommendation
+                        )
                 
-                # Log to CSV with validated multipliers using logger from readregion.py
+                # Log to CSV with validated multipliers
                 if final_multiplier_to_log > 0:
                     self.logger.log_round(final_multiplier_to_log)
 
@@ -976,6 +1113,7 @@ class AviatorBot:
             import traceback
             traceback.print_exc()
             self.print_final_stats(cumulative_profit)
+
 
     def print_dry_run_stats(self, cumulative_profit):
         """Print dry run statistics."""

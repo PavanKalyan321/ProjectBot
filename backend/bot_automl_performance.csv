@@ -1,1 +1,2 @@
 timestamp,round_id,actual_multiplier,ensemble_prediction,ensemble_range,ensemble_confidence,consensus_range,consensus_strength,recommendation_should_bet,recommendation_target,recommendation_risk,prediction_error,range_correct,model_1_pred,model_2_pred,model_3_pred,model_4_pred,model_5_pred,model_6_pred,model_7_pred,model_8_pred,model_9_pred,model_10_pred
+2025-10-29T17:09:13.401184,2,4.24,8.44,3.0+x,83.69,3.0+x,87.5,False,8.44,UNKNOWN,4.20,1,10.00,10.00,10.00,10.00,6.35,2.43,10.00,10.00,2.90,10.00,10.00,3.36,10.00,10.00,10.00,10.00
