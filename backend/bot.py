@@ -93,18 +93,19 @@ class AviatorBot:
         self.automl_predictor = get_predictor()
         self.use_automl_predictions = True  # Flag to enable/disable AutoML
 
-        # HARDCODED COORDINATES - Set these to match your screen
-        self.MULTIPLIER_REGION = {"top": 506, "left": 330, "width": 322, "height": 76}
-        self.STAKE_COORDS = None  # Will use from config or set manually: (x, y)
-        self.BET_BUTTON_COORDS = None  # Will use from config or set manually: (x, y)
-        self.CASHOUT_COORDS = None  # Will use from config or set manually: (x, y)
-        self.balance_coords = (626, 149, 694, 152)  # UPDATE if needed
-        
-        # Bot settings (will be set from user input)
-        self.initial_stake = 25
-        self.max_stake = 1000
+        # COORDINATES - Will be loaded from config or set during setup
+        self.MULTIPLIER_REGION = None
+        self.STAKE_COORDS = None
+        self.BET_BUTTON_COORDS = None
+        self.CASHOUT_COORDS = None
+        self.balance_coords = None
+
+        # Bot settings (will be loaded from config or set from user input)
+        self.initial_stake = self.config_manager.initial_stake
+        self.max_stake = self.config_manager.max_stake
         self.target_multiplier = 2.0
         self.current_stake = self.initial_stake
+        self.safety_margin = self.config_manager.safety_margin
 
         # Balance tracking
         self.last_balance = None
@@ -235,22 +236,22 @@ class AviatorBot:
         print("\n" + "="*80)
         print("🔧 INITIALIZING COMPONENTS")
         print("="*80)
-        
-        # Use hardcoded multiplier region
-        region_dict = self.MULTIPLIER_REGION.copy()
-        print(f"📍 Using hardcoded multiplier region: {region_dict}")
-        
-        # Override config if using hardcoded values
+
+        # Load coordinates from config
         if self.config_manager.multiplier_region:
-            print("   (Config region exists but using hardcoded values)")
-        
-        # Set coordinates from config or use hardcoded
-        if not self.STAKE_COORDS and self.config_manager.stake_coords:
-            self.STAKE_COORDS = self.config_manager.stake_coords
-        if not self.BET_BUTTON_COORDS and self.config_manager.bet_button_coords:
-            self.BET_BUTTON_COORDS = self.config_manager.bet_button_coords
-        if not self.CASHOUT_COORDS and self.config_manager.cashout_coords:
-            self.CASHOUT_COORDS = self.config_manager.cashout_coords
+            # Convert from tuple (x, y, width, height) to dict format
+            x, y, w, h = self.config_manager.multiplier_region
+            region_dict = {"left": x, "top": y, "width": w, "height": h}
+            print(f"📍 Using multiplier region from config: {region_dict}")
+        else:
+            print("❌ No multiplier region configured!")
+            return False
+
+        # Set coordinates from config
+        self.STAKE_COORDS = self.config_manager.stake_coords
+        self.BET_BUTTON_COORDS = self.config_manager.bet_button_coords
+        self.CASHOUT_COORDS = self.config_manager.cashout_coords
+        self.balance_coords = self.config_manager.balance_region
         
         # In observation mode, we don't need all coordinates
         if self.mode == 'observation':
@@ -909,10 +910,13 @@ class AviatorBot:
                 # ✨ GET AUTOML PREDICTIONS BEFORE ROUND STARTS
                 if self.use_automl_predictions:
                     self.current_automl_prediction, self.current_automl_ensemble, self.current_automl_recommendation = self.get_automl_predictions()
-                
+
+                # Generate unique round_id based on timestamp with milliseconds
+                from datetime import datetime
+                self.current_round_id = datetime.now().strftime("%Y%m%d%H%M%S%f")[:17]  # YYYYMMDDHHMMSSmmm
+
                 # Reset tracking for new round
                 self.bet_placed_this_round = False
-                self.current_round_id = round_number
                 
                 # Reset round state for new round
                 self.round_state = {
@@ -936,7 +940,7 @@ class AviatorBot:
                     print("⚠️  Skipping round - couldn't detect awaiting state")
                     # Log skipped round with zeros
                     self._log_to_history(
-                        round_id=round_number,
+                        round_id=self.current_round_id,
                         final_multiplier=0.0,
                         cashout_multiplier=0.0,
                         bet_placed=False,
@@ -969,9 +973,18 @@ class AviatorBot:
                         else:
                             print("🤖 ML Recommendation: PLACE BET ✅")
                             ml_target = self.current_automl_recommendation.get('target_multiplier', self.target_multiplier)
-                            # Use ML prediction for target, but cap it reasonably
-                            self.target_multiplier = max(1.5, min(ml_target * 0.85, 5.0))
-                            print(f"   ML Target: {ml_target:.2f}x → Adjusted Target: {self.target_multiplier:.2f}x")
+
+                            # Show which model's prediction is being used
+                            if len(self.current_automl_prediction) == 1:
+                                model_name = self.current_automl_prediction[0]['model_name']
+                                print(f"   Using {model_name} prediction: {ml_target:.2f}x")
+                            else:
+                                print(f"   Using Ensemble prediction: {ml_target:.2f}x ({len(self.current_automl_prediction)} models)")
+
+                            # Apply safety margin (default 10%) and cap it reasonably
+                            self.target_multiplier = max(1.5, min(ml_target * self.safety_margin, 5.0))
+                            safety_pct = int((1 - self.safety_margin) * 100)
+                            print(f"   Adjusted Target ({safety_pct}% safety margin): {self.target_multiplier:.2f}x")
                             print(f"   Confidence: {self.current_automl_recommendation.get('confidence', 0):.1f}%")
                             print(f"   Risk Level: {self.current_automl_recommendation.get('risk_level', 'N/A')}")
                 
@@ -1046,7 +1059,7 @@ class AviatorBot:
                     
                     # Log to CSV even if we didn't bet
                     self._log_to_history(
-                        round_id=round_number,
+                        round_id=self.current_round_id,
                         final_multiplier=final_mult,
                         cashout_multiplier=cashout_mult,
                         bet_placed=round_bet_placed,
@@ -1158,7 +1171,7 @@ class AviatorBot:
                     if self.current_automl_prediction and self.current_automl_ensemble and self.current_automl_recommendation:
                         add_round_result(
                             final_multiplier_to_log,
-                            round_id=round_number,
+                            round_id=self.current_round_id,  # Use timestamp-based round_id
                             predictions=self.current_automl_prediction,
                             ensemble=self.current_automl_ensemble,
                             recommendation=self.current_automl_recommendation

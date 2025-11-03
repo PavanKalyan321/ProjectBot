@@ -5,6 +5,7 @@ from datetime import datetime
 import warnings
 import os
 import csv
+from utils.data_logger import get_performance_logger, get_range_predictor
 warnings.filterwarnings('ignore')
 
 
@@ -17,32 +18,14 @@ class AutoMLPredictor:
         self.recent_history = deque(maxlen=20)
         self.trained = False
         self.performance_file = performance_file
-        
-        self.ranges = [
-            {'name': '1.0-1.5x', 'min': 1.0, 'max': 1.5},
-            {'name': '1.5-2.0x', 'min': 1.5, 'max': 2.0},
-            {'name': '2.0-2.5x', 'min': 2.0, 'max': 2.5},
-            {'name': '2.5-3.0x', 'min': 2.5, 'max': 3.0},
-            {'name': '3.0+x', 'min': 3.0, 'max': 100.0}
-        ]
-        
-        self._initialize_performance_file()
+
+        # Use centralized loggers
+        self.performance_logger = get_performance_logger()
+        self.range_predictor = get_range_predictor()
+
         self._load_performance_history()
         
-    def _initialize_performance_file(self):
-        if not os.path.exists(self.performance_file):
-            with open(self.performance_file, 'w', newline='') as f:
-                writer = csv.writer(f)
-                header = [
-                    'timestamp', 'round_id', 'actual_multiplier',
-                    'ensemble_prediction', 'ensemble_range', 'ensemble_confidence',
-                    'consensus_range', 'consensus_strength',
-                    'recommendation_should_bet', 'recommendation_target',
-                    'recommendation_risk', 'prediction_error', 'range_correct'
-                ]
-                header.extend([f'model_{i}_pred' for i in range(1, 17)])
-                writer.writerow(header)
-            print(f"[AutoML] Created performance tracking file: {self.performance_file}")
+    # Removed - performance logger initializes the file
     
     def _load_performance_history(self):
         try:
@@ -168,17 +151,15 @@ class AutoMLPredictor:
         else:
             features['momentum'] = 0
         
-        for range_def in self.ranges:
+        for range_def in self.range_predictor.ranges:
             count = sum(1 for m in data_source if range_def['min'] <= m < range_def['max'])
             features[f"range_{range_def['name']}_pct"] = count / len(data_source)
         
         return features
     
     def get_range_for_multiplier(self, multiplier):
-        for range_def in self.ranges:
-            if range_def['min'] <= multiplier < range_def['max']:
-                return range_def['name']
-        return self.ranges[-1]['name']
+        """Get range for multiplier - uses centralized range predictor"""
+        return self.range_predictor.get_range_for_multiplier(multiplier)
     
     def predict_with_model(self, model, features):
         if not features:
@@ -321,28 +302,35 @@ class AutoMLPredictor:
     def get_betting_recommendation(self, predictions, ensemble, risk_tolerance='medium'):
         if not predictions or not ensemble:
             return None
-        
+
         range_weights = {}
         for pred in predictions:
             range_name = pred['predicted_range']
             weight = pred['weight']
             range_weights[range_name] = range_weights.get(range_name, 0) + weight
-        
+
         total_weight = sum(range_weights.values())
         consensus_range = max(range_weights, key=range_weights.get)
         consensus_weight = range_weights[consensus_range]
         consensus_pct = (consensus_weight / total_weight) * 100
-        
+
         strong_consensus = consensus_pct >= 50
-        
+
         consensus_confidence = np.average(
             [p['confidence'] for p in predictions if p['predicted_range'] == consensus_range],
             weights=[p['weight'] for p in predictions if p['predicted_range'] == consensus_range]
         )
-        
+
+        # If only one model is selected, use that model's prediction directly
+        # Otherwise, use the ensemble prediction
+        if len(predictions) == 1:
+            target_mult = predictions[0]['predicted_multiplier']
+        else:
+            target_mult = ensemble['ensemble_multiplier']
+
         recommendation = {
             'should_bet': False,
-            'target_multiplier': ensemble['ensemble_multiplier'],
+            'target_multiplier': target_mult,
             'consensus_range': consensus_range,
             'consensus_strength': round(consensus_pct, 1),
             'confidence': round(consensus_confidence, 2),
@@ -367,39 +355,52 @@ class AutoMLPredictor:
         
         return recommendation
     
-    def log_performance(self, round_id, actual_multiplier, predictions, ensemble, recommendation):
+    def log_performance(self, timestamp_str, round_id, actual_multiplier, predictions, ensemble, recommendation):
+        """
+        Log performance using centralized logger with SAME timestamp as round
+
+        Args:
+            timestamp_str: Timestamp string matching the round (YYYY-MM-DD HH:MM:SS)
+            round_id: Round ID
+            actual_multiplier: Actual multiplier
+            predictions: List of model predictions
+            ensemble: Ensemble prediction dict
+            recommendation: Recommendation dict
+        """
         try:
-            with open(self.performance_file, 'a', newline='') as f:
-                writer = csv.writer(f)
-                
-                ensemble_pred = ensemble['ensemble_multiplier']
-                prediction_error = abs(ensemble_pred - actual_multiplier)
-                
-                actual_range = self.get_range_for_multiplier(actual_multiplier)
-                range_correct = 1 if actual_range == ensemble['ensemble_range'] else 0
-                
-                model_preds = [None] * 16
-                for pred in predictions:
-                    model_preds[pred['model_id'] - 1] = pred['predicted_multiplier']
-                
-                writer.writerow([
-                    datetime.now().isoformat(),
-                    round_id,
-                    f"{actual_multiplier:.2f}",
-                    f"{ensemble_pred:.2f}",
-                    ensemble['ensemble_range'],
-                    f"{ensemble['ensemble_confidence']:.2f}",
-                    recommendation['consensus_range'],
-                    f"{recommendation['consensus_strength']:.1f}",
-                    recommendation['should_bet'],
-                    f"{recommendation['target_multiplier']:.2f}",
-                    recommendation['risk_level'],
-                    f"{prediction_error:.2f}",
-                    range_correct
-                ] + [f"{p:.2f}" if p is not None else "" for p in model_preds])
-                
-            print(f"[AutoML] Performance logged - Error: {prediction_error:.2f}x, Range: {'✅' if range_correct else '❌'}")
-            
+            ensemble_pred = ensemble['ensemble_multiplier']
+            predicted_range = ensemble['ensemble_range']
+            actual_range = self.get_range_for_multiplier(actual_multiplier)
+
+            # Extract model predictions
+            model_preds = [None] * 16
+            for pred in predictions:
+                model_preds[pred['model_id'] - 1] = pred['predicted_multiplier']
+
+            # Use centralized logger
+            success = self.performance_logger.log_performance(
+                timestamp_str=timestamp_str,
+                round_id=round_id,
+                actual_multiplier=actual_multiplier,
+                predicted_multiplier=ensemble_pred,
+                predicted_range=predicted_range,
+                actual_range=actual_range,
+                ensemble_confidence=ensemble['ensemble_confidence'],
+                consensus_range=recommendation['consensus_range'],
+                consensus_strength=recommendation['consensus_strength'],
+                should_bet=recommendation['should_bet'],
+                target_multiplier=recommendation['target_multiplier'],
+                risk_level=recommendation['risk_level'],
+                model_predictions=model_preds
+            )
+
+            # Update range accuracy tracker
+            self.range_predictor.update_accuracy(predicted_range, actual_range)
+
+            if success:
+                range_match = '✅' if predicted_range == actual_range else '❌'
+                print(f"[AutoML] Performance logged - Predicted: {predicted_range}, Actual: {actual_range} {range_match}")
+
         except Exception as e:
             print(f"[AutoML] Error logging performance: {e}")
     
@@ -474,5 +475,8 @@ def add_round_result(multiplier, round_id=None, predictions=None, ensemble=None,
     predictor = get_predictor()
     predictor.add_to_history(multiplier)
     if round_id and predictions and ensemble and recommendation:
-        predictor.log_performance(round_id, multiplier, predictions, ensemble, recommendation)
+        # Generate timestamp for logging (matching round timestamp format)
+        from datetime import datetime
+        timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        predictor.log_performance(timestamp_str, round_id, multiplier, predictions, ensemble, recommendation)
     predictor.retrain_from_performance()

@@ -16,31 +16,31 @@ from utils.betting_helpers import (
     increase_stake,
     reset_stake
 )
+from utils.data_logger import get_round_logger
 
 # Optional: Set path to tesseract executable if needed
 # pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 
 class AviatorHistoryLogger:
-    """Logger for Aviator game round history"""
-    
+    """Logger for Aviator game round history - DEPRECATED, use data_logger instead"""
+
     def __init__(self, csv_filename="aviator_rounds_history.csv"):
         """
         Initialize logger with CSV file
-        
+
         Args:
             csv_filename: Name of CSV file to store history
         """
+        print("[DEPRECATED] AviatorHistoryLogger is deprecated. Use utils.data_logger instead.")
         self.csv_filename = csv_filename
-        self.fieldnames = ['timestamp', 'round_no', 'multiplier']
+        self.fieldnames = ['timestamp', 'multiplier', 'source']
+        self.round_logger = get_round_logger()  # Use centralized logger
         self._ensure_csv_exists()
     
     def _ensure_csv_exists(self):
-        """Create CSV file with headers if it doesn't exist"""
-        if not os.path.exists(self.csv_filename):
-            with open(self.csv_filename, 'w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=self.fieldnames)
-                writer.writeheader()
+        """Create CSV file with headers if it doesn't exist - handled by centralized logger"""
+        pass  # Centralized logger handles this
     
     def _generate_round_no(self, timestamp):
         """
@@ -84,12 +84,12 @@ class AviatorHistoryLogger:
     
     def log_round(self, multiplier, custom_timestamp=None):
         """
-        Log a completed round to CSV file
-        
+        Log a completed round to CSV file using centralized logger
+
         Args:
             multiplier: Final multiplier value of the round
             custom_timestamp: Optional datetime object (uses current time if None)
-            
+
         Returns:
             tuple: (success: bool, round_no: str or None, error_msg: str)
         """
@@ -98,25 +98,25 @@ class AviatorHistoryLogger:
         if not is_valid:
             print(f"❌ Validation failed: {error_msg}")
             return False, None, error_msg
-        
+
         # Get timestamp
         timestamp = custom_timestamp if custom_timestamp else datetime.now()
-        timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
         round_no = self._generate_round_no(timestamp)
-        
-        # Write to CSV
+
+        # Use centralized logger
         try:
-            with open(self.csv_filename, 'a', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=self.fieldnames)
-                writer.writerow({
-                    'timestamp': timestamp_str,
-                    'round_no': round_no,
-                    'multiplier': f"{validated_mult:.2f}"
-                })
-            
-            print(f"✅ Logged: Round {round_no} | {timestamp_str} | {validated_mult:.2f}x")
-            return True, round_no, ""
-            
+            success, timestamp_str = self.round_logger.log_round(
+                validated_mult,
+                source='screen',
+                custom_timestamp=timestamp
+            )
+
+            if success:
+                print(f"✅ Logged: Round {round_no} | {timestamp_str} | {validated_mult:.2f}x")
+                return True, round_no, ""
+            else:
+                return False, None, "Failed to log round"
+
         except Exception as e:
             error_msg = f"Failed to write to CSV: {str(e)}"
             print(f"❌ {error_msg}")
@@ -170,11 +170,11 @@ class AviatorHistoryLogger:
 
 class MultiplierReader:
     """Real-time multiplier reader for Aviator game"""
-    
+
     def __init__(self, region, enable_logging=True, csv_filename="aviator_rounds_history.csv"):
         """
         Initialize reader with screen region
-        
+
         Args:
             region: dict with keys 'top', 'left', 'width', 'height'
             enable_logging: Whether to automatically log rounds to CSV
@@ -184,10 +184,10 @@ class MultiplierReader:
         self.last_valid_multiplier = None
         self.flight_in_progress = False
         self.last_print_was_awaiting = False
-        
-        # Logging setup
+
+        # Logging setup - use centralized logger
         self.enable_logging = enable_logging
-        self.logger = AviatorHistoryLogger(csv_filename) if enable_logging else None
+        self.round_logger = get_round_logger() if enable_logging else None
         self.round_start_multiplier = None
         self.round_peak_multiplier = None
         
@@ -285,8 +285,8 @@ class MultiplierReader:
         
         if value == "AWAITING NEXT FLIGHT":
             # Round ended - log it before resetting
-            if self.enable_logging and self.round_peak_multiplier and self.round_peak_multiplier >= 1.0:
-                self.logger.log_round(self.round_peak_multiplier)
+            if self.enable_logging and self.round_logger and self.round_peak_multiplier and self.round_peak_multiplier >= 1.0:
+                self.round_logger.log_round(self.round_peak_multiplier, source='screen')
             
             # Reset state
             self.flight_in_progress = False
@@ -305,8 +305,8 @@ class MultiplierReader:
                 # Check if this is a new flight
                 if self.last_valid_multiplier and self.last_valid_multiplier > 1.5 and validated < 1.5:
                     # Log previous round before starting new one
-                    if self.enable_logging and self.round_peak_multiplier and self.round_peak_multiplier >= 1.0:
-                        self.logger.log_round(self.round_peak_multiplier)
+                    if self.enable_logging and self.round_logger and self.round_peak_multiplier and self.round_peak_multiplier >= 1.0:
+                        self.round_logger.log_round(self.round_peak_multiplier, source='screen')
                     
                     self.flight_in_progress = False  # Reset for new flight
                     self.round_start_multiplier = None
@@ -413,14 +413,10 @@ def main_loop_test():
         print("\n\nStopped.")
 
         # Show session statistics
-        if reader.logger:
+        if reader.enable_logging:
             print("\n=== Session Statistics ===")
-            stats = reader.logger.get_statistics()
-            print(f"Total Rounds Logged: {stats['total_rounds']}")
-            if stats['total_rounds'] > 0:
-                print(f"Min Multiplier: {stats['min_multiplier']:.2f}x")
-                print(f"Max Multiplier: {stats['max_multiplier']:.2f}x")
-                print(f"Avg Multiplier: {stats['avg_multiplier']:.2f}x")
+            print("Rounds logged to aviator_rounds_history.csv")
+            print("Use DataManager to view statistics")
 
 
 def main_with_bot():

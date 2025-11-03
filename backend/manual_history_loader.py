@@ -1,12 +1,14 @@
 """
 Manual History Loader - Load previous rounds at startup for better ML predictions
 Enhanced clipboard parsing for jammed multipliers and special characters
+Now uses centralized data_logger to prevent duplicate logging
 """
 
 import csv
 import os
 from datetime import datetime
 import re
+from utils.data_logger import get_round_logger
 
 
 def generate_realistic_timestamps(num_rounds, avg_round_duration=10, start_from_now=True):
@@ -56,21 +58,22 @@ def generate_realistic_timestamps(num_rounds, avg_round_duration=10, start_from_
 
 def generate_realistic_round_ids(timestamps):
     """
-    Generate realistic round IDs based on timestamps.
+    Generate realistic round IDs based on timestamps with milliseconds for uniqueness.
 
     Args:
         timestamps: List of timestamp strings
 
     Returns:
-        list: List of round_id strings
+        list: List of round_id strings (format: YYYYMMDDHHMMSSmmm)
     """
     round_ids = []
 
-    for ts in timestamps:
+    for i, ts in enumerate(timestamps):
         # Parse timestamp and create round_id
         dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-        # Add microseconds for uniqueness
-        round_id = dt.strftime("%Y%m%d%H%M%S") + f"{len(round_ids):06d}"
+        # Add milliseconds for uniqueness (simulate increasing milliseconds)
+        milliseconds = (i * 100) % 1000  # 0, 100, 200, ..., 900, 0, 100, ...
+        round_id = dt.strftime("%Y%m%d%H%M%S") + f"{milliseconds:03d}"
         round_ids.append(round_id)
 
     return round_ids
@@ -219,6 +222,7 @@ class ManualHistoryLoader:
     def __init__(self, csv_file="aviator_rounds_history.csv"):
         self.csv_file = csv_file
         self.history = []
+        self.round_logger = get_round_logger()  # Use centralized logger
     
     def parse_multipliers_from_text(self, text):
         """
@@ -346,20 +350,17 @@ class ManualHistoryLoader:
     
     def save_to_csv(self, multipliers, append=True, use_realistic_timestamps=True, avg_round_duration=10):
         """
-        Save multipliers to CSV file with realistic timestamps and automatic duplicate removal.
+        Save multipliers to CSV file using centralized logger (3-column format).
 
         Args:
             multipliers: List of multipliers to save
-            append: If True, append to existing file; if False, overwrite
+            append: If True, append to existing file; if False, overwrite (not used with logger)
             use_realistic_timestamps: If True, generate backdated timestamps (default: True)
             avg_round_duration: Average seconds per round for timestamp generation (default: 10)
         """
         if not multipliers:
             print("\n[WARNING] No multipliers to save")
             return False
-
-        mode = 'a' if append and os.path.exists(self.csv_file) else 'w'
-        file_exists = os.path.exists(self.csv_file) and append
 
         # Clean duplicates first
         print(f"\n[STEP 1] Removing duplicates from input...")
@@ -376,67 +377,27 @@ class ManualHistoryLoader:
             return False
 
         try:
-            # Generate realistic timestamps
+            # Use centralized logger to avoid duplicate logging
+            print(f"\n[STEP 2] Logging to centralized round logger...")
+
             if use_realistic_timestamps:
-                print(f"\n[STEP 2] Generating realistic timestamps...")
-                print(f"   Average round duration: {avg_round_duration}s")
-                timestamps = generate_realistic_timestamps(
-                    len(cleaned_mults),
-                    avg_round_duration=avg_round_duration,
-                    start_from_now=True
+                from datetime import datetime
+                start_time = datetime.now()
+                count = self.round_logger.log_batch(
+                    cleaned_mults,
+                    source='manual',
+                    start_timestamp=start_time
                 )
-                round_ids = generate_realistic_round_ids(timestamps)
-
-                # Show time span
-                oldest = timestamps[0]
-                newest = timestamps[-1]
-                print(f"   Time span: {oldest} to {newest}")
-                print(f"   Total duration: ~{len(cleaned_mults) * avg_round_duration / 60:.1f} minutes")
             else:
-                print(f"\n[STEP 2] Using current timestamp for all entries...")
-                current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                timestamps = [current_timestamp] * len(cleaned_mults)
-                round_ids = [datetime.now().strftime("%Y%m%d%H%M%S%f") + f"{i:06d}" for i in range(len(cleaned_mults))]
+                count = 0
+                for mult in cleaned_mults:
+                    success, _ = self.round_logger.log_round(mult, source='manual')
+                    if success:
+                        count += 1
 
-            # Write to CSV
-            print(f"\n[STEP 3] Writing to CSV file...")
-            with open(self.csv_file, mode, newline='') as f:
-                writer = csv.writer(f)
-
-                # Write header if new file (must match history_tracker.py schema!)
-                if not file_exists:
-                    writer.writerow([
-                        'timestamp', 'round_id', 'multiplier',
-                        'bet_placed', 'stake_amount', 'cashout_time',
-                        'profit_loss', 'model_prediction', 'model_confidence',
-                        'model_predicted_range_low', 'model_predicted_range_high',
-                        'pos2_confidence', 'pos2_target_multiplier', 'pos2_burst_probability',
-                        'pos2_phase', 'pos2_rules_triggered'
-                    ])
-
-                # Write multipliers with realistic timestamps (must match 16-column schema!)
-                for i, mult in enumerate(cleaned_mults):
-                    writer.writerow([
-                        timestamps[i],
-                        round_ids[i],
-                        mult,
-                        False,  # bet_placed
-                        0,      # stake_amount
-                        0,      # cashout_time
-                        0,      # profit_loss
-                        0,      # model_prediction
-                        0,      # model_confidence
-                        0,      # model_predicted_range_low
-                        0,      # model_predicted_range_high
-                        0,      # pos2_confidence
-                        0,      # pos2_target_multiplier
-                        0,      # pos2_burst_probability
-                        'manual',  # pos2_phase
-                        ''      # pos2_rules_triggered
-                    ])
-
-            print(f"\n[OK] Saved {len(cleaned_mults)} unique multipliers to {self.csv_file}")
+            print(f"\n[OK] Saved {count} unique multipliers to {self.csv_file}")
             return True
+
         except Exception as e:
             print(f"\n[ERROR] Error saving to CSV: {e}")
             import traceback
@@ -445,56 +406,32 @@ class ManualHistoryLoader:
     
     def load_history_for_tracker(self, history_tracker):
         """
-        Load manual history into RoundHistoryTracker.
-        
+        Load manual history - saves to CSV only (no duplicate logging to tracker).
+
         Args:
-            history_tracker: RoundHistoryTracker instance
-            
+            history_tracker: RoundHistoryTracker instance (not used, kept for compatibility)
+
         Returns:
             int: Number of rounds loaded
         """
         # Get manual input
         multipliers = self.load_from_manual_input()
-        
+
         if not multipliers:
             return 0
-        
+
         # Ask if user wants to save to CSV
         save_choice = input("\n[SAVE] Save to CSV? (y/n, default: y): ").strip().lower()
         if save_choice != 'n':
-            self.save_to_csv(multipliers, append=True)
-        
-        # Load into tracker
-        print(f"\n[LOAD] Loading {len(multipliers)} rounds into tracker...")
+            # ONLY save to CSV - do NOT log to history_tracker
+            # The tracker will read from CSV when needed
+            success = self.save_to_csv(multipliers, append=True)
+            if success:
+                print(f"[OK] Successfully saved {len(multipliers)} rounds to CSV")
+                print(f"[INFO] History tracker will read these from CSV when needed")
+                return len(multipliers)
 
-        count = 0
-        for mult in multipliers:
-            try:
-                # Add to history tracker as observed (non-bet) rounds
-                # Match your CSV header structure
-                history_tracker.log_round(
-                    multiplier=mult,
-                    bet_placed=False,
-                    stake=0,
-                    cashout_time=0,
-                    profit_loss=0,
-                    prediction=0,
-                    confidence=0,
-                    pred_range=(0, 0)
-                )
-                count += 1
-            except Exception as e:
-                print(f"[WARNING]  Error logging round {mult}: {e}")
-                continue
-        
-        print(f"[OK] Successfully loaded {count} rounds")
-
-        # Get recent rounds to show total history size
-        recent_df = history_tracker.get_recent_rounds(10000)
-        if not recent_df.empty:
-            print(f"[STATS] Total history size: {len(recent_df)}")
-
-        return count
+        return 0
     
     def show_statistics(self, multipliers):
         """Show statistics about loaded multipliers."""

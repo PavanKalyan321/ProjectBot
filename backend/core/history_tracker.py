@@ -120,7 +120,7 @@ class RoundHistoryTracker:
             self.local_history_buffer.append({
                 'multiplier': multiplier,
                 'timestamp': datetime.now().isoformat(),
-                'round_id': datetime.now().strftime("%Y%m%d%H%M%S%f")
+                'round_id': datetime.now().strftime("%Y%m%d%H%M%S%f")[:17]  # Include milliseconds
             })
 
             # Update tracking
@@ -152,7 +152,7 @@ class RoundHistoryTracker:
         """
         try:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            round_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
+            round_id = datetime.now().strftime("%Y%m%d%H%M%S%f")[:17]  # Include milliseconds (17 chars: YYYYMMDDHHMMSSmmm)
 
             # Extract Position 2 data if available
             pos2_confidence = 0
