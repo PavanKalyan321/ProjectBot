@@ -351,17 +351,17 @@ class AutoMLPredictor:
         }
         
         if risk_tolerance == 'low':
-            if strong_consensus and consensus_confidence >= 72 and ensemble['avg_accuracy'] >= 60:
+            if strong_consensus and consensus_confidence >= 70 and ensemble['avg_accuracy'] >= 5:
                 recommendation['should_bet'] = True
                 recommendation['risk_level'] = 'LOW'
-        
+
         elif risk_tolerance == 'medium':
-            if consensus_pct >= 45 and consensus_confidence >= 65 and ensemble['avg_accuracy'] >= 50:
+            if consensus_pct >= 35 and consensus_confidence >= 60:
                 recommendation['should_bet'] = True
                 recommendation['risk_level'] = 'MEDIUM'
-        
+
         elif risk_tolerance == 'high':
-            if consensus_pct >= 35 and consensus_confidence >= 55:
+            if consensus_pct >= 30 and consensus_confidence >= 55:
                 recommendation['should_bet'] = True
                 recommendation['risk_level'] = 'HIGH'
         
@@ -455,8 +455,8 @@ def predict_next_round(history_file=None):
         return None, None, None
     predictor.print_predictions_table(predictions, ensemble)
     recommendation = predictor.get_betting_recommendation(
-        predictions, 
-        ensemble, 
+        predictions,
+        ensemble,
         risk_tolerance='medium'
     )
     if recommendation:

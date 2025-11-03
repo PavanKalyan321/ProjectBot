@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aviator Bot - Compact Analytics</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: #fff;
+            font-size: 12px;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 100%;
+            padding: 8px;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header h1 {
+            font-size: 16px;
+            font-weight: 600;
+            background: linear-gradient(90deg, #00f260, #0575e6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .live-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: #00ff00;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: rgba(0, 242, 96, 0.3);
+            box-shadow: 0 0 20px rgba(0, 242, 96, 0.1);
+        }
+
+        .card-title {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .card-value {
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #00f260, #0575e6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .card-subtitle {
+            font-size: 10px;
+            color: #666;
+            margin-top: 2px;
+        }
+
+        .current-round {
+            background: linear-gradient(135deg, rgba(0, 242, 96, 0.1), rgba(5, 117, 230, 0.1));
+            border: 1px solid rgba(0, 242, 96, 0.3);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .current-round-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .round-id {
+            font-size: 13px;
+            color: #00f260;
+            font-weight: 600;
+        }
+
+        .multiplier-display {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .multiplier-box {
+            flex: 1;
+            text-align: center;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+        }
+
+        .multiplier-label {
+            font-size: 10px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .multiplier-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .actual { color: #00ff00; }
+        .prediction { color: #0575e6; }
+
+        .confidence-bar {
+            margin-top: 8px;
+        }
+
+        .confidence-label {
+            font-size: 10px;
+            color: #888;
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00f260, #0575e6);
+            transition: width 0.5s ease;
+        }
+
+        .trend-signal {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .signal-box {
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            border: 2px solid;
+        }
+
+        .signal-upward {
+            background: rgba(0, 255, 0, 0.1);
+            border-color: #00ff00;
+        }
+
+        .signal-downward {
+            background: rgba(255, 0, 0, 0.1);
+            border-color: #ff0000;
+        }
+
+        .signal-neutral {
+            background: rgba(255, 255, 0, 0.1);
+            border-color: #ffff00;
+        }
+
+        .signal-label {
+            font-size: 10px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .signal-value {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .signal-icon {
+            font-size: 24px;
+            margin-top: 4px;
+        }
+
+        .models-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        .model-box {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 6px;
+            border-radius: 6px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .model-box:hover {
+            transform: translateY(-2px);
+            border-color: rgba(0, 242, 96, 0.5);
+        }
+
+        .model-name {
+            font-size: 9px;
+            color: #888;
+            margin-bottom: 3px;
+        }
+
+        .model-pred {
+            font-size: 14px;
+            font-weight: 600;
+            color: #0575e6;
+        }
+
+        .model-accuracy {
+            font-size: 9px;
+            margin-top: 2px;
+        }
+
+        .accuracy-high { color: #00ff00; }
+        .accuracy-medium { color: #ffff00; }
+        .accuracy-low { color: #ff6b6b; }
+
+        .top-models {
+            background: rgba(255, 215, 0, 0.1);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .top-model-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px;
+            margin-bottom: 4px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+        }
+
+        .medal {
+            font-size: 16px;
+            margin-right: 6px;
+        }
+
+        .recent-rounds {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 8px;
+        }
+
+        .round-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 8px;
+            margin-bottom: 4px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 4px;
+            font-size: 11px;
+            border-left: 3px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .round-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .round-correct {
+            border-left-color: #00ff00;
+        }
+
+        .round-incorrect {
+            border-left-color: #ff6b6b;
+        }
+
+        .rules-panel {
+            background: rgba(138, 43, 226, 0.1);
+            border: 1px solid rgba(138, 43, 226, 0.3);
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .rule-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px;
+            margin-bottom: 4px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        .rule-active {
+            border-left: 3px solid #00ff00;
+        }
+
+        .rule-inactive {
+            opacity: 0.5;
+        }
+
+        .btn {
+            background: linear-gradient(90deg, #00f260, #0575e6);
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 242, 96, 0.3);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 120px;
+            margin-top: 8px;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #00f260, #0575e6);
+            border-radius: 3px;
+        }
+
+        .section-title {
+            font-size: 12px;
+            color: #00f260;
+            margin-bottom: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .stat-mini {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 6px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-mini-label {
+            font-size: 9px;
+            color: #888;
+        }
+
+        .stat-mini-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: #00f260;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🎯 Aviator Bot Analytics</h1>
+            <div class="live-indicator">
+                <div class="live-dot"></div>
+                <span>LIVE</span>
+            </div>
+        </div>
+
+        <!-- Live Stats -->
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">Total Rounds</div>
+                <div class="card-value" id="total-rounds">0</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Win Rate</div>
+                <div class="card-value" id="win-rate">0%</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Profit/Loss</div>
+                <div class="card-value" id="profit-loss">$0</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Avg Confidence</div>
+                <div class="card-value" id="avg-confidence">0%</div>
+            </div>
+        </div>
+
+        <!-- Current Round -->
+        <div class="current-round">
+            <div class="current-round-header">
+                <div class="round-id">Round: <span id="current-round-id">-</span></div>
+                <div style="font-size: 10px; color: #888;" id="current-timestamp">-</div>
+            </div>
+
+            <div class="multiplier-display">
+                <div class="multiplier-box">
+                    <div class="multiplier-label">ACTUAL</div>
+                    <div class="multiplier-value actual" id="actual-multiplier">0.00x</div>
+                </div>
+                <div class="multiplier-box">
+                    <div class="multiplier-label">PREDICTED</div>
+                    <div class="multiplier-value prediction" id="predicted-multiplier">0.00x</div>
+                </div>
+            </div>
+
+            <div class="stats-row">
+                <div class="stat-mini">
+                    <div class="stat-mini-label">Range</div>
+                    <div class="stat-mini-value" id="pred-range">-</div>
+                </div>
+                <div class="stat-mini">
+                    <div class="stat-mini-label">Target</div>
+                    <div class="stat-mini-value" id="pred-target">-</div>
+                </div>
+                <div class="stat-mini">
+                    <div class="stat-mini-label">Recommend</div>
+                    <div class="stat-mini-value" id="pred-recommend">-</div>
+                </div>
+            </div>
+
+            <div class="confidence-bar">
+                <div class="confidence-label">
+                    <span>Confidence</span>
+                    <span id="confidence-value">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="confidence-fill" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trend & Signal -->
+        <div class="trend-signal">
+            <div class="signal-box signal-neutral" id="trend-box">
+                <div class="signal-label">TREND</div>
+                <div class="signal-value" id="trend-value">NEUTRAL</div>
+                <div class="signal-icon" id="trend-icon">→</div>
+            </div>
+            <div class="signal-box signal-neutral" id="signal-box">
+                <div class="signal-label">SIGNAL</div>
+                <div class="signal-value" id="signal-value">WAIT</div>
+                <div class="signal-icon" id="signal-icon">⏸</div>
+            </div>
+        </div>
+
+        <!-- Top Models -->
+        <div class="top-models">
+            <div class="section-title">🏆 Top Performing Models</div>
+            <div id="top-models-list"></div>
+        </div>
+
+        <!-- All Models Grid -->
+        <div class="card">
+            <div class="section-title">📊 All 16 Models - Current Round</div>
+            <div class="models-grid" id="models-grid"></div>
+        </div>
+
+        <!-- Rules Status -->
+        <div class="rules-panel">
+            <div class="section-title">📋 Game Rules & Patterns</div>
+            <div id="rules-list"></div>
+            <div style="margin-top: 8px; font-size: 10px; color: #888;">
+                <div>Avg: <span id="pattern-avg">0.00x</span> | Volatility: <span id="pattern-vol">0.00</span></div>
+            </div>
+        </div>
+
+        <!-- Recent Rounds -->
+        <div class="card">
+            <div class="section-title">📈 Recent 20 Rounds</div>
+            <div class="chart-container">
+                <canvas id="trendChart"></canvas>
+            </div>
+            <div class="recent-rounds" id="recent-rounds"></div>
+        </div>
+
+        <!-- Actions -->
+        <div style="margin-top: 8px; text-align: center;">
+            <button class="btn" onclick="refreshData()">🔄 Refresh Data</button>
+            <button class="btn" onclick="cleanupData()" style="background: linear-gradient(90deg, #ff6b6b, #ee5a6f); margin-left: 8px;">🧹 Cleanup Data</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let trendChart = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initChart();
+            loadAllData();
+            setInterval(loadAllData, 5000); // Refresh every 5 seconds
+        });
+
+        // Socket events
+        socket.on('connect', function() {
+            console.log('Connected to server');
+        });
+
+        socket.on('live_update', function(data) {
+            updateCurrentRound(data);
+        });
+
+        socket.on('initial_data', function(data) {
+            updateLiveStats(data);
+        });
+
+        // Load all data
+        function loadAllData() {
+            fetch('/api/live_stats')
+                .then(r => r.json())
+                .then(updateLiveStats);
+
+            fetch('/api/current_round')
+                .then(r => r.json())
+                .then(updateCurrentRound);
+
+            fetch('/api/trend_signal')
+                .then(r => r.json())
+                .then(updateTrendSignal);
+
+            fetch('/api/top_models')
+                .then(r => r.json())
+                .then(updateTopModels);
+
+            fetch('/api/rules_status')
+                .then(r => r.json())
+                .then(updateRulesStatus);
+
+            fetch('/api/recent_rounds?limit=20')
+                .then(r => r.json())
+                .then(updateRecentRounds);
+        }
+
+        function updateLiveStats(data) {
+            document.getElementById('total-rounds').textContent = data.total_rounds || 0;
+            document.getElementById('win-rate').textContent = (data.win_rate || 0) + '%';
+
+            const pl = data.profit_loss || 0;
+            const plElem = document.getElementById('profit-loss');
+            plElem.textContent = (pl >= 0 ? '+' : '') + pl.toFixed(2);
+            plElem.style.color = pl >= 0 ? '#00ff00' : '#ff6b6b';
+
+            document.getElementById('avg-confidence').textContent = (data.avg_confidence || 0) + '%';
+        }
+
+        function updateCurrentRound(data) {
+            document.getElementById('current-round-id').textContent = data.round_id || '-';
+            document.getElementById('current-timestamp').textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '-';
+            document.getElementById('actual-multiplier').textContent = (data.actual || 0).toFixed(2) + 'x';
+            document.getElementById('predicted-multiplier').textContent = (data.ensemble_prediction || 0).toFixed(2) + 'x';
+            document.getElementById('pred-range').textContent = data.ensemble_range || '-';
+            document.getElementById('pred-target').textContent = (data.target || 0).toFixed(2) + 'x';
+            document.getElementById('pred-recommend').textContent = data.recommendation ? '✅ YES' : '❌ NO';
+
+            const confidence = data.confidence || 0;
+            document.getElementById('confidence-value').textContent = confidence.toFixed(1) + '%';
+            document.getElementById('confidence-fill').style.width = confidence + '%';
+
+            // Update models
+            if (data.models && data.models.length > 0) {
+                const modelsHtml = data.models.map(model => {
+                    const accuracyClass = model.accuracy >= 80 ? 'accuracy-high' : model.accuracy >= 60 ? 'accuracy-medium' : 'accuracy-low';
+                    return `
+                        <div class="model-box">
+                            <div class="model-name">${model.name}</div>
+                            <div class="model-pred">${model.prediction.toFixed(2)}x</div>
+                            <div class="model-accuracy ${accuracyClass}">${model.accuracy.toFixed(0)}%</div>
+                        </div>
+                    `;
+                }).join('');
+                document.getElementById('models-grid').innerHTML = modelsHtml;
+            }
+        }
+
+        function updateTrendSignal(data) {
+            const trend = data.trend || 'NEUTRAL';
+            const signal = data.signal || 'WAIT';
+
+            // Update trend
+            document.getElementById('trend-value').textContent = trend;
+            const trendBox = document.getElementById('trend-box');
+            trendBox.className = 'signal-box ' + getTrendClass(trend);
+
+            const trendIcon = trend === 'UPWARD' ? '↑' : trend === 'DOWNWARD' ? '↓' : '→';
+            document.getElementById('trend-icon').textContent = trendIcon;
+
+            // Update signal
+            document.getElementById('signal-value').textContent = signal;
+            const signalBox = document.getElementById('signal-box');
+            signalBox.className = 'signal-box ' + getSignalClass(signal);
+
+            const signalIcon = signal.includes('BET') ? '🎯' : signal === 'SKIP' ? '⛔' : '⏸';
+            document.getElementById('signal-icon').textContent = signalIcon;
+        }
+
+        function getTrendClass(trend) {
+            if (trend.includes('UP')) return 'signal-upward';
+            if (trend.includes('DOWN')) return 'signal-downward';
+            return 'signal-neutral';
+        }
+
+        function getSignalClass(signal) {
+            if (signal.includes('BET')) return 'signal-upward';
+            if (signal === 'SKIP') return 'signal-downward';
+            return 'signal-neutral';
+        }
+
+        function updateTopModels(data) {
+            if (!data.top_models || data.top_models.length === 0) return;
+
+            const medals = ['🥇', '🥈', '🥉'];
+            const html = data.top_models.map((model, i) => `
+                <div class="top-model-item">
+                    <div><span class="medal">${medals[i]}</span> ${model.model}</div>
+                    <div style="color: #00ff00;">${model.accuracy.toFixed(1)}%</div>
+                </div>
+            `).join('');
+
+            document.getElementById('top-models-list').innerHTML = html;
+        }
+
+        function updateRulesStatus(data) {
+            if (data.rules) {
+                const html = data.rules.map(rule => {
+                    const activeClass = rule.active ? 'rule-active' : 'rule-inactive';
+                    const signalColor = rule.signal === 'BET' ? '#00ff00' : rule.signal === 'CAUTIOUS' ? '#ffff00' : '#888';
+                    return `
+                        <div class="rule-item ${activeClass}">
+                            <span>${rule.name}</span>
+                            <span style="color: ${signalColor};">${rule.signal}</span>
+                        </div>
+                    `;
+                }).join('');
+                document.getElementById('rules-list').innerHTML = html;
+            }
+
+            if (data.patterns) {
+                document.getElementById('pattern-avg').textContent = (data.patterns.avg_multiplier || 0).toFixed(2) + 'x';
+                document.getElementById('pattern-vol').textContent = (data.patterns.volatility || 0).toFixed(2);
+            }
+        }
+
+        function updateRecentRounds(data) {
+            if (!data.rounds || data.rounds.length === 0) return;
+
+            const html = data.rounds.reverse().map(round => {
+                const isCorrect = round.error < 1.0;
+                const roundClass = isCorrect ? 'round-correct' : 'round-incorrect';
+                const recommendIcon = round.recommended ? '✅' : '⭕';
+                return `
+                    <div class="round-item ${roundClass}">
+                        <span>${round.round_id}</span>
+                        <span>${round.actual.toFixed(2)}x → ${round.prediction.toFixed(2)}x</span>
+                        <span style="color: ${isCorrect ? '#00ff00' : '#ff6b6b'};">${round.error.toFixed(2)}</span>
+                        <span>${recommendIcon}</span>
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('recent-rounds').innerHTML = html;
+
+            // Update chart
+            updateChart(data.rounds);
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            trendChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Actual',
+                        data: [],
+                        borderColor: '#00ff00',
+                        backgroundColor: 'rgba(0, 255, 0, 0.1)',
+                        tension: 0.4,
+                        pointRadius: 2
+                    }, {
+                        label: 'Predicted',
+                        data: [],
+                        borderColor: '#0575e6',
+                        backgroundColor: 'rgba(5, 117, 230, 0.1)',
+                        tension: 0.4,
+                        pointRadius: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: {
+                                color: '#fff',
+                                font: { size: 10 }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#888', font: { size: 9 } },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        },
+                        y: {
+                            ticks: { color: '#888', font: { size: 9 } },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart(rounds) {
+            if (!trendChart) return;
+
+            const labels = rounds.map((r, i) => i + 1);
+            const actuals = rounds.map(r => r.actual);
+            const predictions = rounds.map(r => r.prediction);
+
+            trendChart.data.labels = labels;
+            trendChart.data.datasets[0].data = actuals;
+            trendChart.data.datasets[1].data = predictions;
+            trendChart.update();
+        }
+
+        function refreshData() {
+            loadAllData();
+            alert('Data refreshed!');
+        }
+
+        function cleanupData() {
+            if (!confirm('Clean up duplicate and empty data?')) return;
+
+            fetch('/api/cleanup', { method: 'POST' })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.success) {
+                        alert(result.message);
+                        loadAllData();
+                    } else {
+                        alert('Error: ' + result.error);
+                    }
+                });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+[Unit]
+Description=Aviator Bot Automated Trading Service
+Documentation=https://github.com/your-repo/aviator-bot
+After=network.target aviator-dashboard.service xvfb.service
+Wants=xvfb.service
+Requires=aviator-dashboard.service
+
+[Service]
+Type=simple
+User=aviator
+Group=aviator
+WorkingDirectory=/opt/aviator-bot/backend
+Environment="DISPLAY=:99"
+Environment="PATH=/opt/aviator-bot/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Load environment variables from .env file
+EnvironmentFile=-/opt/aviator-bot/.env
+
+# Main bot command
+# Note: This runs in non-interactive mode using .env settings
+ExecStart=/opt/aviator-bot/venv/bin/python3 /opt/aviator-bot/backend/bot.py
+
+# Restart policy
+# NOTE: Be cautious with auto-restart in LIVE mode!
+Restart=on-failure
+RestartSec=30
+StartLimitInterval=600
+StartLimitBurst=3
+
+# Logging
+StandardOutput=append:/var/log/aviator-bot.log
+StandardError=append:/var/log/aviator-bot.error.log
+SyslogIdentifier=aviator-bot
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/aviator-bot/backend /var/log
+
+# Resource limits
+MemoryLimit=2G
+CPUQuota=150%
+
+[Install]
+WantedBy=multi-user.target

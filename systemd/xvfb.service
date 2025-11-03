@@ -1,0 +1,30 @@
+[Unit]
+Description=X Virtual Frame Buffer Service
+Documentation=man:Xvfb(1)
+After=network.target
+
+[Service]
+Type=simple
+User=aviator
+Group=aviator
+
+# Start Xvfb on display :99 with 1920x1080 resolution at 24-bit color depth
+ExecStart=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset
+
+# Restart policy
+Restart=always
+RestartSec=5
+StartLimitInterval=200
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xvfb
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

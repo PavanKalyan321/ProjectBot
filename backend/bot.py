@@ -25,6 +25,8 @@ import pyautogui
 import re
 import os
 import csv
+import sys
+import logging
 from datetime import datetime
 from collections import deque
 
@@ -48,13 +50,32 @@ MODEL_NAMES = {
     16: 'TransmogrifAI'
 }
 
+class TeeOutput:
+    """Duplicates output to both console and log file."""
+    def __init__(self, log_file):
+        self.terminal = sys.stdout
+        self.log = open(log_file, 'a', encoding='utf-8')
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush()
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+    def close(self):
+        self.log.close()
+
+
 class AviatorBot:
     """Simple Aviator Bot with multiplier-based cashout using MultiplierReader directly."""
 
     def __init__(self, mode='live'):
         """
         Initialize the bot.
-        
+
         Args:
             mode: 'live', 'dry_run', or 'observation'
         """
@@ -62,6 +83,11 @@ class AviatorBot:
         self.config_manager = ConfigManager()
         self.multiplier_reader = None
         self.detector = None
+
+        # Setup logging to file
+        self.log_file = f"bot_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        self.tee = None
+        self._setup_logging()
 
         # ✨ INITIALIZE AUTOML PREDICTOR
         self.automl_predictor = get_predictor()
@@ -122,6 +148,15 @@ class AviatorBot:
         self.history_tracker = RoundHistoryTracker()  # Initialize here
         self.logger = AviatorHistoryLogger(self.history_file)  # Use logger from readregion.py
         self._initialize_history_file()
+
+    def _setup_logging(self):
+        """Setup dual output to console and log file."""
+        self.tee = TeeOutput(self.log_file)
+        sys.stdout = self.tee
+        print(f"\n{'='*80}")
+        print(f"📝 LOGGING SESSION STARTED: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"📄 Log file: {self.log_file}")
+        print(f"{'='*80}\n")
 
     def _initialize_history_file(self):
         """Initialize CSV history file if it doesn't exist."""
@@ -394,7 +429,7 @@ class AviatorBot:
 
 
     def _read_balance(self):
-        """Read current balance from balance region."""
+        """Read current balance from balance region with improved K suffix handling."""
         try:
             import pyperclip
             
@@ -402,32 +437,46 @@ class AviatorBot:
             
             # Triple-click to select text
             pyautogui.click((x1 + x2) // 2, (y1 + y2) // 2, clicks=3)
-            time.sleep(0.1)
+            time.sleep(0.15)  # Slightly longer wait for selection
             
             # Copy to clipboard
             pyautogui.hotkey('ctrl', 'c')
-            time.sleep(0.1)
+            time.sleep(0.15)
             
             balance_text = pyperclip.paste().strip()
             
             if not balance_text:
+                print("   ⚠️  Balance text empty")
                 return None
             
-            # Parse balance
-            balance_text = balance_text.replace(',', '')
+            # Clean the text
+            balance_text = balance_text.replace(',', '').replace(' ', '')
             
-            # Handle K notation (e.g., "1.5K")
+            print(f"   📊 Raw balance text: '{balance_text}'")
+            
+            # Handle K notation (e.g., "1.5K", "10.2K", "1K")
             if 'K' in balance_text.upper():
-                match = re.search(r'([\d.]+)K', balance_text.upper())
+                # Match patterns like: 1.5K, 10K, 1.23K
+                match = re.search(r'([\d.]+)\s*K', balance_text.upper())
                 if match:
-                    return float(match.group(1)) * 1000
-            else:
-                match = re.search(r'[\d.]+', balance_text)
-                if match:
-                    return float(match.group(0))
+                    value = float(match.group(1)) * 1000
+                    print(f"   💰 Parsed K value: {value:.2f}")
+                    return value
+                else:
+                    print(f"   ⚠️  Could not parse K notation: '{balance_text}'")
             
+            # Handle regular numbers (below 1000)
+            match = re.search(r'([\d.]+)', balance_text)
+            if match:
+                value = float(match.group(1))
+                print(f"   💰 Parsed regular value: {value:.2f}")
+                return value
+            
+            print(f"   ⚠️  Could not parse balance: '{balance_text}'")
             return None
+            
         except Exception as e:
+            print(f"   ⚠️  Balance read error: {e}")
             return None
 
     def _wait_for_awaiting_state(self, timeout=60):
@@ -663,32 +712,42 @@ class AviatorBot:
                         print("   ✅ Cashout command sent!")
                         cashout_mult = current_mult  # Store cashout multiplier
                         
-                        # Wait for balance to update
+                        # Wait for balance to update (give it more time)
                         print("   ⏳ Validating balance change...")
-                        time.sleep(0.2)
+                        time.sleep(0.5)
                         new_balance = self._read_balance()
-                        
+
                         # Validate win by checking balance
                         if self.last_balance is not None and new_balance is not None:
                             balance_change = new_balance - self.last_balance
-                            
-                            if balance_change > 0:
+                            expected_profit = stake_used * (cashout_mult - 1)
+
+                            # Debug logging
+                            print(f"   📊 Balance before cashout: {self.last_balance:.2f}")
+                            print(f"   📊 Balance after cashout: {new_balance:.2f}")
+                            print(f"   📊 Change: {balance_change:+.2f} | Expected: {expected_profit:+.2f}")
+                            print(f"   📊 Stake: {stake_used:.2f} | Multiplier: {cashout_mult:.2f}x")
+
+                            # Win if balance increased (profit from cashout)
+                            # We check if balance increased by at least 50% of stake (conservative check)
+                            if balance_change > (stake_used * 0.5):
                                 print(f"   ✅ Balance validation: WIN confirmed (+{balance_change:.2f})")
-                                
+
                                 self.stats["successful_cashouts"] += 1
                                 self.stats["current_streak"] += 1
-                                
+
                                 profit = balance_change
                                 returns = stake_used + profit
                                 self.stats["total_return"] += returns
                                 self.last_balance = new_balance
-                                
+
                                 # Mark cashout successful and continue monitoring for final multiplier
                                 cashout_triggered = True
                                 print(f"   👁️  Continuing to monitor for round end...")
-                                
+
                             else:
                                 print(f"   ❌ Balance validation: LOST (change: {balance_change:.2f})")
+                                print(f"   ⚠️  Expected win but balance didn't increase enough!")
                                 
                                 self.stats["failed_cashouts"] += 1
                                 self.stats["current_streak"] = 0
@@ -909,7 +968,10 @@ class AviatorBot:
                             round_result = "ML_SKIP"
                         else:
                             print("🤖 ML Recommendation: PLACE BET ✅")
-                            print(f"   Target: {self.current_automl_recommendation.get('target_multiplier', 0):.2f}x")
+                            ml_target = self.current_automl_recommendation.get('target_multiplier', self.target_multiplier)
+                            # Use ML prediction for target, but cap it reasonably
+                            self.target_multiplier = max(1.5, min(ml_target * 0.85, 5.0))
+                            print(f"   ML Target: {ml_target:.2f}x → Adjusted Target: {self.target_multiplier:.2f}x")
                             print(f"   Confidence: {self.current_automl_recommendation.get('confidence', 0):.1f}%")
                             print(f"   Risk Level: {self.current_automl_recommendation.get('risk_level', 'N/A')}")
                 
@@ -945,9 +1007,15 @@ class AviatorBot:
                             round_bet_placed = True
                             round_stake = self.current_stake
 
-                            # Wait for bet to register
+                            # Read balance after bet is placed (balance will be reduced by stake)
                             print("⏳ Waiting for bet to register...")
                             time.sleep(1.0)
+
+                            # Update last_balance to current balance (after stake deduction)
+                            current_balance = self._read_balance()
+                            if current_balance is not None:
+                                self.last_balance = current_balance
+                                print(f"   💰 Balance after bet: {self.last_balance:.2f}")
                 else:
                     # Skip betting - just observe
                     round_bet_placed = False
@@ -1108,11 +1176,23 @@ class AviatorBot:
         except KeyboardInterrupt:
             print("\n\n⛔ Bot stopped by user.")
             self.print_final_stats(cumulative_profit)
+            self._cleanup_logging()
         except Exception as e:
             print(f"\n\n❌ Unexpected error: {e}")
             import traceback
             traceback.print_exc()
             self.print_final_stats(cumulative_profit)
+            self._cleanup_logging()
+
+    def _cleanup_logging(self):
+        """Restore stdout and close log file."""
+        if self.tee:
+            print(f"\n{'='*80}")
+            print(f"📝 LOGGING SESSION ENDED: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"📄 Full log saved to: {self.log_file}")
+            print(f"{'='*80}\n")
+            sys.stdout = self.tee.terminal
+            self.tee.close()
 
 
     def print_dry_run_stats(self, cumulative_profit):

@@ -1,0 +1,44 @@
+[Unit]
+Description=Aviator Bot Dashboard Service
+Documentation=https://github.com/your-repo/aviator-bot
+After=network.target xvfb.service
+Wants=xvfb.service
+
+[Service]
+Type=simple
+User=aviator
+Group=aviator
+WorkingDirectory=/opt/aviator-bot
+Environment="DISPLAY=:99"
+Environment="PATH=/opt/aviator-bot/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Load environment variables from .env file
+EnvironmentFile=-/opt/aviator-bot/.env
+
+ExecStart=/opt/aviator-bot/venv/bin/python3 /opt/aviator-bot/run_dashboard.py
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=200
+StartLimitBurst=5
+
+# Logging
+StandardOutput=append:/var/log/aviator-dashboard.log
+StandardError=append:/var/log/aviator-dashboard.error.log
+SyslogIdentifier=aviator-dashboard
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/aviator-bot/backend /var/log
+
+# Resource limits
+MemoryLimit=1G
+CPUQuota=100%
+
+[Install]
+WantedBy=multi-user.target
