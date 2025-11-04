@@ -231,6 +231,126 @@ class AviatorBot:
         except Exception as e:
             print(f"⚠️  AutoML update error: {e}")
 
+    def validate_coordinates_continuous(self, duration=30):
+        """
+        Continuously read and log all coordinate values for validation.
+        Useful for VM setup and debugging.
+
+        Args:
+            duration: How long to run validation (seconds)
+        """
+        print("\n" + "="*80)
+        print("🔍 COORDINATE VALIDATION MODE")
+        print("="*80)
+        print(f"Running for {duration} seconds...")
+        print("This will continuously log all coordinate readings.\n")
+
+        import csv
+        from datetime import datetime
+
+        # Create validation log file
+        validation_file = f"coordinate_validation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+        with open(validation_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'Timestamp',
+                'Multiplier_Reading',
+                'Multiplier_Status',
+                'Balance_Reading',
+                'Balance_Raw_Text',
+                'Region_Capture_Success',
+                'Frame_Shape',
+                'Coordinates_Summary'
+            ])
+
+        start_time = time.time()
+        iteration = 0
+
+        print("📊 Live Readings:")
+        print("-" * 80)
+
+        while time.time() - start_time < duration:
+            iteration += 1
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+
+            # Read multiplier
+            mult_reading = "N/A"
+            mult_status = "UNKNOWN"
+            frame_shape = "N/A"
+            capture_success = False
+
+            try:
+                frame = self.multiplier_reader.capture_region()
+                if frame is not None:
+                    capture_success = True
+                    frame_shape = str(frame.shape)
+
+                    # Try to read multiplier
+                    value = self.multiplier_reader.fast_extract_multiplier_or_status(frame)
+                    if value == "AWAITING NEXT FLIGHT":
+                        mult_reading = "AWAITING"
+                        mult_status = "AWAITING"
+                    elif value:
+                        mult_reading = f"{value:.2f}x" if isinstance(value, (int, float)) else str(value)
+                        mult_status = "ACTIVE" if isinstance(value, (int, float)) else "TEXT"
+            except Exception as e:
+                mult_reading = f"ERROR: {str(e)[:30]}"
+                mult_status = "ERROR"
+
+            # Read balance
+            balance_reading = "N/A"
+            balance_raw = "N/A"
+
+            try:
+                import pyperclip
+                if self.balance_coords:
+                    x1, y1, x2, y2 = self.balance_coords
+                    pyautogui.click((x1 + x2) // 2, (y1 + y2) // 2, clicks=3)
+                    time.sleep(0.1)
+                    pyautogui.hotkey('ctrl', 'c')
+                    time.sleep(0.1)
+                    balance_raw = pyperclip.paste().strip()
+
+                    # Try to parse
+                    if 'K' in balance_raw.upper():
+                        match = re.search(r'([\d.]+)\s*K', balance_raw.upper())
+                        if match:
+                            balance_reading = f"{float(match.group(1)) * 1000:.2f}"
+                    else:
+                        match = re.search(r'([\d.]+)', balance_raw)
+                        if match:
+                            balance_reading = match.group(1)
+            except Exception as e:
+                balance_reading = f"ERROR: {str(e)[:30]}"
+
+            # Coordinates summary
+            coords_summary = f"Mult:[{self.config_manager.multiplier_region}] Bal:[{self.balance_coords}]"
+
+            # Log to CSV
+            with open(validation_file, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    timestamp,
+                    mult_reading,
+                    mult_status,
+                    balance_reading,
+                    balance_raw,
+                    capture_success,
+                    frame_shape,
+                    coords_summary
+                ])
+
+            # Print to console (every iteration)
+            print(f"[{iteration:3d}] {timestamp} | Mult: {mult_reading:12s} | Status: {mult_status:8s} | Bal: {balance_reading:10s} | Raw: '{balance_raw[:20]}'")
+
+            time.sleep(0.5)  # Update every 500ms
+
+        print("\n" + "="*80)
+        print(f"✅ Validation complete! Log saved to: {validation_file}")
+        print("="*80)
+        return validation_file
+
     def initialize_components(self):
         """Initialize multiplier reader and detector with validation."""
         print("\n" + "="*80)
@@ -252,6 +372,14 @@ class AviatorBot:
         self.BET_BUTTON_COORDS = self.config_manager.bet_button_coords
         self.CASHOUT_COORDS = self.config_manager.cashout_coords
         self.balance_coords = self.config_manager.balance_region
+
+        # Print all loaded coordinates for verification
+        print("\n📋 Loaded Coordinates:")
+        print(f"   Multiplier Region: {region_dict}")
+        print(f"   Balance Region: {self.balance_coords}")
+        print(f"   Stake Input: {self.STAKE_COORDS}")
+        print(f"   Bet Button: {self.BET_BUTTON_COORDS}")
+        print(f"   Cashout Button: {self.CASHOUT_COORDS}")
         
         # In observation mode, we don't need all coordinates
         if self.mode == 'observation':
@@ -1263,39 +1391,62 @@ class AviatorBot:
 
 def main():
     """Main entry point with setup and configuration."""
-    
+
     # Ask for mode first
     print("\n📋 SELECT OPERATING MODE:")
     print("   1. LIVE - Real betting (default)")
     print("   2. DRY RUN - Simulate betting without real bets")
     print("   3. OBSERVATION - Collect data only")
-    
-    mode_choice = input("\nChoice (1/2/3, default: 1): ").strip()
-    
+    print("   4. VALIDATE COORDINATES - Test coordinate readings (VM setup)")
+
+    mode_choice = input("\nChoice (1/2/3/4, default: 1): ").strip()
+
     if mode_choice == '2':
         mode = 'dry_run'
         print("\n🧪 DRY RUN MODE selected - No real bets will be placed")
     elif mode_choice == '3':
         mode = 'observation'
         print("\n📊 OBSERVATION MODE selected - Data collection only")
+    elif mode_choice == '4':
+        mode = 'validation'
+        print("\n🔍 VALIDATION MODE selected - Testing coordinate readings")
     else:
         mode = 'live'
         print("\n🚀 LIVE MODE selected - Real betting")
-    
-    bot = AviatorBot(mode=mode)
+
+    bot = AviatorBot(mode=mode if mode != 'validation' else 'observation')
 
     # Setup or load configuration
     if bot.config_manager.load_config() and bot.config_manager.multiplier_region:
         print(f"\n✅ Configuration loaded")
-        print("\nOptions:")
-        print("  1. Use existing coordinates")
-        print("  2. New setup (configure coordinates)")
-        choice = input("\nChoice (1/2): ").strip()
-        
-        if choice == '2':
-            bot.config_manager.setup_coordinates()
+
+        if mode == 'validation':
+            # In validation mode, show coordinates and offer to run test
+            print("\n📍 Current Configuration:")
+            config = bot.config_manager.get_config_dict()
+            print(f"   Multiplier Region: {config['multiplier_region']}")
+            print(f"   Balance Region: {config['balance_region']}")
+            print(f"   Stake Coords: {config['stake_coords']}")
+            print(f"   Bet Button: {config['bet_button_coords']}")
+            print(f"   Cashout Button: {config['cashout_coords']}")
+
+            print("\nOptions:")
+            print("  1. Run validation with current coordinates")
+            print("  2. Reconfigure coordinates first")
+            choice = input("\nChoice (1/2): ").strip()
+
+            if choice == '2':
+                bot.config_manager.setup_coordinates()
         else:
-            print("\n✅ Using existing coordinates")
+            print("\nOptions:")
+            print("  1. Use existing coordinates")
+            print("  2. New setup (configure coordinates)")
+            choice = input("\nChoice (1/2): ").strip()
+
+            if choice == '2':
+                bot.config_manager.setup_coordinates()
+            else:
+                print("\n✅ Using existing coordinates")
     else:
         print("\n📍 No existing configuration found. Starting setup...")
         bot.config_manager.setup_coordinates()
@@ -1303,6 +1454,33 @@ def main():
     # Initialize components with validation
     if not bot.initialize_components():
         print("\n❌ Failed to initialize components. Exiting.")
+        return
+
+    # If validation mode, run coordinate validation
+    if mode == 'validation':
+        print("\n" + "="*80)
+        print("🔍 COORDINATE VALIDATION MODE")
+        print("="*80)
+        print("\nThis mode will continuously read and log:")
+        print("  • Multiplier values")
+        print("  • Balance values")
+        print("  • Frame capture status")
+        print("  • All coordinate positions")
+        print("\nPerfect for VM setup and debugging!")
+
+        duration_input = input("\nValidation duration in seconds (default: 30): ").strip()
+        duration = int(duration_input) if duration_input else 30
+
+        print(f"\n🎬 Starting {duration} second validation...")
+        print("Make sure the game window is visible!\n")
+
+        time.sleep(2)  # Give user time to position window
+
+        validation_file = bot.validate_coordinates_continuous(duration)
+
+        print(f"\n✅ Validation complete!")
+        print(f"📄 CSV log saved to: {validation_file}")
+        print("\nReview the CSV file to verify all coordinates are reading correctly.")
         return
 
     # Get user settings (skip for observation mode)
