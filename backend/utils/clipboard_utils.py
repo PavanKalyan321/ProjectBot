@@ -1,21 +1,46 @@
 """
 Enhanced Clipboard utility functions with robust multiplier parsing.
 Handles jammed values, dashes, and special characters.
+Cross-platform compatible (Windows/Linux/macOS).
 """
 
 import time
 import re
-import win32clipboard
-import win32con
 import pyautogui
+import platform
+
+# Platform detection
+IS_WINDOWS = platform.system() == 'Windows'
+IS_LINUX = platform.system() == 'Linux'
+IS_MAC = platform.system() == 'Darwin'
+
+# Import platform-specific clipboard modules
+if IS_WINDOWS:
+    try:
+        import win32clipboard
+        import win32con
+        CLIPBOARD_AVAILABLE = True
+    except ImportError:
+        print("Warning: pywin32 not installed. Falling back to pyperclip.")
+        import pyperclip
+        CLIPBOARD_AVAILABLE = False
+else:
+    # Linux/Mac - use pyperclip
+    import pyperclip
+    CLIPBOARD_AVAILABLE = False
 
 
 def clear_clipboard():
-    """Clear the system clipboard."""
+    """Clear the system clipboard (cross-platform)."""
     try:
-        win32clipboard.OpenClipboard()
-        win32clipboard.EmptyClipboard()
-        win32clipboard.CloseClipboard()
+        if CLIPBOARD_AVAILABLE and IS_WINDOWS:
+            # Windows with win32clipboard
+            win32clipboard.OpenClipboard()
+            win32clipboard.EmptyClipboard()
+            win32clipboard.CloseClipboard()
+        else:
+            # Linux/Mac or Windows fallback - use pyperclip
+            pyperclip.copy('')
         return True
     except Exception as e:
         print(f"Error clearing clipboard: {e}")
@@ -24,32 +49,39 @@ def clear_clipboard():
 
 def read_clipboard():
     """
-    Read text from clipboard.
-    
+    Read text from clipboard (cross-platform).
+
     Returns:
         str or None: Clipboard text content or None if failed
     """
     try:
-        win32clipboard.OpenClipboard()
-        try:
-            data = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
-        except:
+        if CLIPBOARD_AVAILABLE and IS_WINDOWS:
+            # Windows with win32clipboard
+            win32clipboard.OpenClipboard()
             try:
-                data = win32clipboard.GetClipboardData(win32con.CF_TEXT)
+                data = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
             except:
-                data = None
-        win32clipboard.CloseClipboard()
-        
-        if not data:
-            return None
-        
-        # Convert to string
-        if isinstance(data, bytes):
-            text = data.decode('utf-8', errors='ignore')
+                try:
+                    data = win32clipboard.GetClipboardData(win32con.CF_TEXT)
+                except:
+                    data = None
+            win32clipboard.CloseClipboard()
+
+            if not data:
+                return None
+
+            # Convert to string
+            if isinstance(data, bytes):
+                text = data.decode('utf-8', errors='ignore')
+            else:
+                text = str(data)
+
+            return text.strip()
         else:
-            text = str(data)
-        
-        return text.strip()
+            # Linux/Mac or Windows fallback - use pyperclip
+            text = pyperclip.paste()
+            return text.strip() if text else None
+
     except Exception as e:
         print(f"Error reading clipboard: {e}")
         return None
@@ -194,11 +226,15 @@ def parse_multiplier_first(text):
     return None
 
 
-# Additional optional imports for mutex
-try:
-    import win32event
-    import win32api
-except Exception:
+# Additional optional imports for mutex (Windows only)
+if IS_WINDOWS:
+    try:
+        import win32event
+        import win32api
+    except Exception:
+        win32event = None
+        win32api = None
+else:
     win32event = None
     win32api = None
 
@@ -206,9 +242,10 @@ except Exception:
 def acquire_mutex(mutex_name: str = "Global\\ClipboardUtilsMutex"):
     """
     Acquire a named Win32 mutex to avoid multiple script/process instances.
+    Windows only - returns None on other platforms.
     Returns the mutex handle on success, None otherwise.
     """
-    if win32event is None or win32api is None:
+    if not IS_WINDOWS or win32event is None or win32api is None:
         return None
     try:
         handle = win32event.CreateMutex(None, False, mutex_name)
@@ -223,9 +260,14 @@ def is_clipboard_busy(poll_seconds: float = 0.2) -> bool:
     Returns True if clipboard appears busy/unreadable, False if likely accessible.
     """
     try:
-        win32clipboard.OpenClipboard()
-        win32clipboard.CloseClipboard()
-        return False
+        if CLIPBOARD_AVAILABLE and IS_WINDOWS:
+            win32clipboard.OpenClipboard()
+            win32clipboard.CloseClipboard()
+            return False
+        else:
+            # On Linux/Mac, try to read clipboard
+            pyperclip.paste()
+            return False
     except Exception:
         time.sleep(poll_seconds)
         return True
