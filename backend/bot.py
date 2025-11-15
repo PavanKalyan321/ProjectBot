@@ -90,7 +90,7 @@ class AviatorBot:
         self._setup_logging()
 
         # ✨ INITIALIZE AUTOML PREDICTOR
-        self.automl_predictor = get_predictor()
+        self.automl_predictor = None  # Will be initialized with config
         self.use_automl_predictions = True  # Flag to enable/disable AutoML
 
         # COORDINATES - Will be loaded from config or set during setup
@@ -106,6 +106,9 @@ class AviatorBot:
         self.target_multiplier = 2.0
         self.current_stake = self.initial_stake
         self.safety_margin = self.config_manager.safety_margin
+
+        # Load previous session's stake if available
+        self._load_stake_from_config()
 
         # Balance tracking
         self.last_balance = None
@@ -140,7 +143,14 @@ class AviatorBot:
             "cancelled_bets": 0,
             "total_bet": 0,
             "total_return": 0,
-            "current_streak": 0
+            "current_streak": 0,
+            # Position 2 tracking
+            "position2_bets_placed": 0,
+            "position2_total_bet": 0,
+            "position2_successful_cashouts": 0,
+            "position2_failed_cashouts": 0,
+            "position2_consecutive_losses": 0,
+            "position2_enabled_for_round": False
         }
         
         # History tracking
@@ -149,6 +159,25 @@ class AviatorBot:
         self.history_tracker = RoundHistoryTracker()  # Initialize here
         self.logger = AviatorHistoryLogger(self.history_file)  # Use logger from readregion.py
         self._initialize_history_file()
+
+    def _load_stake_from_config(self):
+        """Load the current stake from config file (persists across sessions)."""
+        try:
+            config = self.config_manager.get_config_dict()
+            if 'current_stake' in config:
+                self.current_stake = float(config['current_stake'])
+                print(f"📈 Loaded stake from previous session: {self.current_stake}")
+        except Exception as e:
+            print(f"⚠️ Could not load stake from config: {e}, using initial stake")
+            self.current_stake = self.initial_stake
+
+    def _save_stake_to_config(self):
+        """Save the current stake to config file for persistence."""
+        try:
+            self.config_manager.config['current_stake'] = str(self.current_stake)
+            self.config_manager.save_config()
+        except Exception as e:
+            print(f"⚠️ Could not save stake to config: {e}")
 
     def _setup_logging(self):
         """Setup dual output to console and log file."""
@@ -184,7 +213,41 @@ class AviatorBot:
                 ])
             print(f"📝 Created history file: {self.history_file}")
 
+    def _is_positive_run_cycle(self):
+        """
+        Determine if we're in a positive run cycle for Position 2 activation.
 
+        Conditions for positive cycle:
+        1. Current win streak >= positive_cycle_threshold (default 3)
+        2. Recent profit positive (last 5 rounds average)
+
+        Returns:
+            bool: True if in positive cycle, False otherwise
+        """
+        try:
+            # Check win streak condition
+            if self.stats.get("current_streak", 0) >= self.config_manager.positive_cycle_threshold:
+                return True
+
+            # Check consecutive losses limit for Position 2
+            pos2_losses = self.stats.get("position2_consecutive_losses", 0)
+            if pos2_losses >= self.config_manager.position2_max_consecutive_losses:
+                return False
+
+            # Check if we have recent profitable rounds
+            if len(self.prediction_history) >= 3:
+                recent_avg_return = sum(
+                    [p.get("return", 0) for p in list(self.prediction_history)[-5:]]
+                ) / min(5, len(self.prediction_history))
+
+                if recent_avg_return > 0:
+                    return True
+
+            return False
+
+        except Exception as e:
+            print(f"  ⚠️ Error in positive cycle detection: {e}")
+            return False
 
     # ✨ NEW METHOD: Train AutoML and get predictions
     def get_automl_predictions(self):
@@ -541,8 +604,12 @@ class AviatorBot:
                     print(f"   🤖 AutoML enabled with {len(self.selected_models)} selected models")
                 else:
                     print(f"   🤖 AutoML enabled with all 16 models")
-                
-                self.automl_predictor = get_predictor(self.selected_models)
+
+                # Update automl_predictor with selected models and config model_names
+                self.automl_predictor = get_predictor(
+                    selected_models=self.selected_models,
+                    model_names=self.config_manager.model_names
+                )
             
             self.current_stake = self.initial_stake
             
@@ -1089,25 +1156,72 @@ class AviatorBot:
                     print("⚠️  Bet already placed for this round - observing")
                     should_skip_bet = True
                 else:
-                    # ✨ CHECK ML RECOMMENDATION BEFORE PLACING BET
+                    # ✨ BETTING DECISION BASED ON CONFIGURED MODE
                     if self.use_automl_predictions and self.current_automl_recommendation:
-                        if not self.current_automl_recommendation.get('should_bet', False):
-                            print("🤖 ML Recommendation: SKIP BET (will observe)")
-                            print(f"   Reason: Consensus: {self.current_automl_recommendation.get('consensus_range', 'N/A')}")
-                            print(f"   Confidence: {self.current_automl_recommendation.get('confidence', 0):.1f}%")
-                            print(f"   Risk Level: {self.current_automl_recommendation.get('risk_level', 'N/A')}")
-                            should_skip_bet = True
-                            round_result = "ML_SKIP"
-                        else:
-                            print("🤖 ML Recommendation: PLACE BET ✅")
-                            ml_target = self.current_automl_recommendation.get('target_multiplier', self.target_multiplier)
+                        betting_mode = self.config_manager.betting_mode.lower()
 
-                            # Show which model's prediction is being used
-                            if len(self.current_automl_prediction) == 1:
-                                model_name = self.current_automl_prediction[0]['model_name']
-                                print(f"   Using {model_name} prediction: {ml_target:.2f}x")
+                        if betting_mode == "ml":
+                            # ===== MODE: ML-BASED (Let ML decide when to bet) =====
+                            # Check 1: ML Recommendation should_bet flag
+                            if not self.current_automl_recommendation.get('should_bet', False):
+                                print("🤖 ML Mode: ML says SKIP BET")
+                                print(f"   Reason: Consensus: {self.current_automl_recommendation.get('consensus_range', 'N/A')}")
+                                print(f"   Confidence: {self.current_automl_recommendation.get('confidence', 0):.1f}%")
+                                print(f"   Risk Level: {self.current_automl_recommendation.get('risk_level', 'N/A')}")
+                                should_skip_bet = True
+                                round_result = "ML_SKIP"
                             else:
-                                print(f"   Using Ensemble prediction: {ml_target:.2f}x ({len(self.current_automl_prediction)} models)")
+                                # ML says yes, will place bet below
+                                pass
+
+                        elif betting_mode == "user":
+                            # ===== MODE: USER-SET (User threshold, ML picks multiplier) =====
+                            if self.current_automl_prediction:
+                                threshold = self.config_manager.min_prediction_threshold
+                                min_required = self.config_manager.min_models_to_pass
+
+                                passing = [p for p in self.current_automl_prediction if p.get('predicted_multiplier', 0) >= threshold]
+                                failing = [p for p in self.current_automl_prediction if p.get('predicted_multiplier', 0) < threshold]
+
+                                if len(passing) < min_required:
+                                    print(f"🤖 User Mode: Insufficient Models Pass ({len(passing)}/{min_required} required): SKIP BET")
+                                    print(f"   Threshold: {threshold:.2f}x | Required: {min_required} models")
+                                    print()
+                                    print("   Models PASSING:")
+                                    for pred in passing:
+                                        print(f"      {pred['model_name']}: {pred.get('predicted_multiplier', 0):.2f}x ✅")
+                                    if failing:
+                                        print()
+                                        print("   Models FAILING:")
+                                        for pred in failing:
+                                            print(f"      {pred['model_name']}: {pred.get('predicted_multiplier', 0):.2f}x ❌")
+                                    should_skip_bet = True
+                                    round_result = "LOW_PRED"
+                                else:
+                                    # Enough models exceed threshold, continue to place bet
+                                    pass
+
+                        if not should_skip_bet and self.current_automl_prediction:
+                            betting_mode = self.config_manager.betting_mode.lower()
+                            threshold = self.config_manager.min_prediction_threshold
+                            min_required = self.config_manager.min_models_to_pass
+                            passing = [p for p in self.current_automl_prediction if p.get('predicted_multiplier', 0) >= threshold]
+
+                            if betting_mode == "user":
+                                print("🤖 User Mode: PLACE BET ✅")
+                                print(f"   {len(passing)}/{len(self.current_automl_prediction)} models exceed threshold ({threshold:.2f}x):")
+                                for pred in self.current_automl_prediction:
+                                    mult = pred.get('predicted_multiplier', 0)
+                                    status = "✅" if mult >= threshold else "❌"
+                                    print(f"      {pred['model_name']}: {mult:.2f}x {status}")
+                            else:
+                                print("🤖 ML Mode: PLACE BET ✅")
+                                for pred in self.current_automl_prediction:
+                                    mult = pred.get('predicted_multiplier', 0)
+                                    print(f"      {pred['model_name']}: {mult:.2f}x")
+
+                            ml_target = self.current_automl_recommendation.get('target_multiplier', self.target_multiplier)
+                            print(f"   Using Ensemble average: {ml_target:.2f}x ({len(self.current_automl_prediction)} models)")
 
                             # Apply safety margin (default 10%) and cap it reasonably
                             self.target_multiplier = max(1.5, min(ml_target * self.safety_margin, 5.0))
@@ -1148,19 +1262,72 @@ class AviatorBot:
                             round_bet_placed = True
                             round_stake = self.current_stake
 
-                            # Read balance after bet is placed (balance will be reduced by stake)
-                            print("⏳ Waiting for bet to register...")
-                            time.sleep(1.0)
+                            # ===== Position 2: High Multiplier Hunter =====
+                            # Try to place Position 2 BEFORE waiting (faster!)
+                            pos2_bet_placed = False
+                            if self.config_manager.position2_enabled and self._is_positive_run_cycle():
+                                print("\n" + "="*80)
+                                print("🎯 Position 2: HIGH MULTIPLIER HUNTER - Positive Cycle Active!")
+                                print("="*80)
+
+                                try:
+                                    from utils.betting_helpers import set_stake_verified_pos, place_bet_with_verification_pos
+
+                                    # Set Position 2 stake (smaller amount) - FAST!
+                                    pos2_stake = self.config_manager.position2_stake_amount
+                                    pos2_set_success = set_stake_verified_pos(
+                                        self.config_manager.position2_stake_coords,
+                                        pos2_stake,
+                                        position=2
+                                    )
+
+                                    if pos2_set_success:
+                                        # Place Position 2 bet immediately - no extra delays!
+                                        pos2_success, pos2_reason = place_bet_with_verification_pos(
+                                            self.config_manager.position2_bet_button_coords,
+                                            self.detector,
+                                            self.stats,
+                                            pos2_stake,
+                                            position=2
+                                        )
+
+                                        if pos2_success:
+                                            pos2_bet_placed = True
+                                            self.stats["position2_enabled_for_round"] = True
+                                            print("✅ Position 2 bet placed successfully!")
+                                        else:
+                                            print(f"❌ Position 2 bet failed: {pos2_reason}")
+                                            self.stats["position2_consecutive_losses"] += 1
+                                    else:
+                                        print("❌ Failed to set Position 2 stake")
+                                        self.stats["position2_consecutive_losses"] += 1
+
+                                except Exception as e:
+                                    print(f"⚠️ Position 2 error: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    self.stats["position2_consecutive_losses"] += 1
+                            else:
+                                self.stats["position2_enabled_for_round"] = False
+                                if not self.config_manager.position2_enabled:
+                                    pass  # Position 2 disabled
+                                elif not self._is_positive_run_cycle():
+                                    print("\n⏸️ Position 2 inactive - not in positive run cycle")
+
+                            # Now read balance and wait (Position 2 already placed!)
+                            print("⏳ Waiting for bets to register...")
+                            time.sleep(0.3)  # Minimal delay
 
                             # Update last_balance to current balance (after stake deduction)
                             current_balance = self._read_balance()
                             if current_balance is not None:
                                 self.last_balance = current_balance
-                                print(f"   💰 Balance after bet: {self.last_balance:.2f}")
+                                print(f"   💰 Balance after bets: {self.last_balance:.2f}")
                 else:
                     # Skip betting - just observe
                     round_bet_placed = False
                     print("👁️  Skipping bet placement - will observe this round")
+                    self.stats["position2_enabled_for_round"] = False
 
                 # Step 5: Wait for round to start (whether we bet or not)
                 print("\n⏳ Waiting for round to start...")
@@ -1238,7 +1405,87 @@ class AviatorBot:
                         print(f"   🔥 Win Streak: {self.stats['current_streak']}")
                     
                     print("-"*80)
-                    
+
+                    # ===== Position 2 Cashout Monitoring =====
+                    if pos2_bet_placed:
+                        print("\n" + "="*80)
+                        print("🎯 Position 2: Monitoring for High Multiplier...")
+                        print("="*80)
+
+                        try:
+                            from utils.betting_helpers import cashout_verified_pos
+
+                            # Position 2 target multiplier (from config, default 10x)
+                            pos2_target = self.config_manager.position2_target_multiplier
+
+                            # Monitor Position 2 - let it ride longer for higher multiplier
+                            # We'll use a simple strategy: try to cashout at target or wait for final crash
+                            pos2_cashed_out = False
+                            pos2_multiplier = 0.0
+                            pos2_profit = 0.0
+
+                            # Wait a bit longer than Position 1 (Position 2 targets higher multiples)
+                            start_pos2_monitor = time.time()
+                            pos2_timeout = 30  # Monitor for up to 30 seconds
+
+                            while time.time() - start_pos2_monitor < pos2_timeout:
+                                current_mult = self.multiplier_reader.get_latest_multiplier()
+
+                                if current_mult and current_mult >= pos2_target and not pos2_cashed_out:
+                                    # Try to cashout Position 2 at target
+                                    print(f"🎯 Position 2 reached target: {current_mult:.2f}x >= {pos2_target:.2f}x")
+                                    success, reason = cashout_verified_pos(
+                                        self.config_manager.position2_cashout_coords,
+                                        self.detector,
+                                        position=2
+                                    )
+
+                                    if success:
+                                        pos2_cashed_out = True
+                                        pos2_multiplier = current_mult
+                                        pos2_profit = self.config_manager.position2_stake_amount * (current_mult - 1)
+                                        self.stats["position2_successful_cashouts"] += 1
+                                        print(f"✅ Position 2 Cashout Success: +{pos2_profit:.2f} at {pos2_multiplier:.2f}x")
+                                        print(f"   Return: {current_mult:.2f}x")
+                                        self.stats["position2_consecutive_losses"] = 0  # Reset loss counter on win
+                                        break
+                                    else:
+                                        print(f"⚠️ Position 2 cashout command sent but may not have executed")
+                                        break
+
+                                # Check if round ended
+                                if not pos2_cashed_out and self.detector.is_awaiting_next_flight():
+                                    print(f"💥 Position 2 round ended (crashed before reaching target)")
+                                    final_mult_detected = self.multiplier_reader.last_valid_multiplier or 0.0
+                                    if final_mult_detected > 0:
+                                        pos2_multiplier = final_mult_detected
+                                        pos2_profit = self.config_manager.position2_stake_amount * (final_mult_detected - 1)
+                                        if final_mult_detected < 1.0:
+                                            pos2_profit = -self.config_manager.position2_stake_amount
+                                            self.stats["position2_failed_cashouts"] += 1
+                                            self.stats["position2_consecutive_losses"] += 1
+                                            print(f"❌ Position 2 Loss: -{self.config_manager.position2_stake_amount:.2f} (crashed at {final_mult_detected:.2f}x)")
+                                        else:
+                                            self.stats["position2_successful_cashouts"] += 1
+                                            self.stats["position2_consecutive_losses"] = 0
+                                            print(f"✅ Position 2 Profit: +{pos2_profit:.2f} (caught at {final_mult_detected:.2f}x)")
+                                    break
+
+                                time.sleep(0.1)
+
+                            if not pos2_cashed_out:
+                                # Timeout or round ended without positioning
+                                print("⏱️ Position 2 monitoring timeout")
+                                self.stats["position2_failed_cashouts"] += 1
+                                self.stats["position2_consecutive_losses"] += 1
+
+                        except Exception as e:
+                            print(f"⚠️ Position 2 cashout error: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            self.stats["position2_failed_cashouts"] += 1
+                            self.stats["position2_consecutive_losses"] += 1
+
                     # Update stake based on result
                     if success:
                         old_stake = self.current_stake
@@ -1250,11 +1497,13 @@ class AviatorBot:
                         )
                         if self.current_stake > old_stake:
                             print(f"   📈 Stake increased: {old_stake} → {self.current_stake}")
+                            self._save_stake_to_config()  # Persist stake increase
                     else:
                         old_stake = self.current_stake
                         self.current_stake = reset_stake(self.initial_stake, self.stats)
                         if self.current_stake < old_stake:
                             print(f"   📉 Stake reset: {old_stake} → {self.current_stake}")
+                            self._save_stake_to_config()  # Persist stake reset
                 else:
                     # No bet placed - just observe the round
                     print("👁️  Observing round (no bet placed)...")
@@ -1451,6 +1700,12 @@ def main():
         print("\n📍 No existing configuration found. Starting setup...")
         bot.config_manager.setup_coordinates()
 
+    # ✨ Initialize AutoML predictor with config-loaded selected_models and model_names
+    bot.automl_predictor = get_predictor(
+        selected_models=bot.config_manager.selected_models,
+        model_names=bot.config_manager.model_names
+    )
+
     # Initialize components with validation
     if not bot.initialize_components():
         print("\n❌ Failed to initialize components. Exiting.")
@@ -1554,6 +1809,91 @@ def main():
 
     # Start the bot
     bot.run()
+
+
+# ============================================================================
+# HELPER FUNCTIONS FOR AUTOML INTEGRATION (From patched version)
+# ============================================================================
+
+def _range_band(label: str):
+    """Map qualitative range labels to numeric [min, max] bands"""
+    mapping = {
+        'LOW': (1.00, 1.30),
+        'MEDIUM-LOW': (1.30, 1.80),
+        'MEDIUM': (1.80, 2.60),
+        'MEDIUM-HIGH': (2.60, 3.80),
+        'HIGH': (3.80, 999.0),
+    }
+    return mapping.get(label.upper(), (1.00, 999.0))
+
+
+def build_model_table(predictions):
+    """Return a list of dict rows for logging model predictions as a table"""
+    rows = []
+    for p in predictions:
+        mn, mx = _range_band(p.get('predicted_range', 'LOW'))
+        rows.append({
+            'Model': p.get('model_name'),
+            'Expected x': round(float(p.get('predicted_multiplier', 0.0)), 2),
+            'Range': p.get('predicted_range', 'LOW'),
+            'Range Min': mn,
+            'Range Max': mx,
+            'Confidence': f"{int(p.get('confidence', 0))}%"
+        })
+    return rows
+
+
+def print_model_table(rows):
+    """Pretty-print model predictions in aligned columns"""
+    if not rows:
+        return ""
+    headers = list(rows[0].keys())
+    widths = {h: max(len(h), max(len(str(r.get(h, ''))) for r in rows)) for h in headers}
+    out = []
+    out.append(" " + " | ".join(h.ljust(widths[h]) for h in headers))
+    out.append("-" * (len(out[0])))
+    for r in rows:
+        out.append(" " + " | ".join(str(r.get(h, '')).ljust(widths[h]) for h in headers))
+    return "\n".join(out)
+
+
+def all_models_meet_target(model_rows, user_target):
+    """Ensure all models' expected multipliers and ranges exceed user target"""
+    try:
+        target = float(user_target)
+    except:
+        target = 1.5
+    for row in model_rows:
+        pred = float(row.get('Expected x', 0))
+        rmax = float(row.get('Range Max', 999.0))
+        # model must expect at least the target; also its range's upper bound should be >= target
+        if pred < target or rmax < target:
+            return False  # Don't bet if not all models meet target
+    return True
+
+
+def log_pattern_hypotheses(automl_predictor, history_tracker):
+    """Display upcoming pattern hypotheses in tabular format"""
+    try:
+        recent = list(history_tracker.get_recent_final_multipliers(limit=200))
+    except Exception:
+        recent = []
+
+    if not recent or len(recent) == 0:
+        print("[PATTERNS] Insufficient data for pattern detection")
+        return []
+
+    patterns = automl_predictor.detect_patterns(recent)
+
+    headers = ['Pattern', 'Expected Range', 'Confidence']
+    widths = {h: max(len(h), max(len(str(p[h])) for p in patterns)) for h in headers}
+    print("\n[PATTERNS] Upcoming hypotheses (top 5):")
+    print(" " + " | ".join(h.ljust(widths[h]) for h in headers))
+    print("-" * (sum(widths.values()) + 6))
+    for p in patterns:
+        print(" " + " | ".join(str(p[h]).ljust(widths[h]) for h in headers))
+    print()
+    return patterns
 
 
 if __name__ == "__main__":
