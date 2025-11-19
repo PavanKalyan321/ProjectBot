@@ -98,19 +98,89 @@ class BrowserDataCollector:
     """
     Collects all game data points from a single browser instance.
     Tracks: balance, multiplier, place bet status, stake, number of players.
+    Logs all data in real-time with instance and datapoint metadata.
     """
 
-    def __init__(self, browser_id: int):
+    def __init__(self, browser_id: int, enable_realtime_logging=True):
         """
         Initialize collector for a browser.
 
         Args:
             browser_id: Browser ID (0-5)
+            enable_realtime_logging: Whether to log to CSV in real-time
         """
         self.browser_id = browser_id
         self.data_points = {}
         self.collected_data = defaultdict(list)
         self.validation_status = {}
+
+        # Real-time logging setup
+        self.enable_realtime_logging = enable_realtime_logging
+        self.log_filepath = f"browser_{browser_id}_data.csv"
+        self.log_file = None
+        self.csv_writer = None
+        self._init_csv_logger()
+
+    def _init_csv_logger(self):
+        """Initialize CSV file for real-time logging"""
+        if not self.enable_realtime_logging:
+            return
+
+        try:
+            # Check if file exists to determine if we need headers
+            file_exists = os.path.exists(self.log_filepath)
+
+            self.log_file = open(self.log_filepath, 'a', newline='')
+            self.csv_writer = csv.DictWriter(
+                self.log_file,
+                fieldnames=[
+                    'timestamp',
+                    'browser_id',
+                    'data_point',
+                    'value',
+                    'confidence',
+                    'raw_ocr',
+                    'validated'
+                ]
+            )
+
+            # Write header if new file
+            if not file_exists:
+                self.csv_writer.writeheader()
+                self.log_file.flush()
+
+            print(f"✅ CSV logger initialized for Browser {self.browser_id}: {self.log_filepath}")
+
+        except Exception as e:
+            print(f"❌ Failed to initialize CSV logger: {e}")
+            self.enable_realtime_logging = False
+
+    def log_data_point(self, point_name: str, value, confidence: float, raw_ocr: str):
+        """
+        Log a data point in real-time to CSV.
+
+        Args:
+            point_name: Name of the data point
+            value: Extracted value
+            confidence: Confidence score (0-1)
+            raw_ocr: Raw OCR text
+        """
+        if not self.enable_realtime_logging or self.csv_writer is None:
+            return
+
+        try:
+            self.csv_writer.writerow({
+                'timestamp': datetime.now().isoformat(),
+                'browser_id': self.browser_id,
+                'data_point': point_name,
+                'value': str(value) if value is not None else '',
+                'confidence': f"{confidence:.3f}",
+                'raw_ocr': raw_ocr[:100],  # Limit OCR text length
+                'validated': self.validation_status.get(point_name, False)
+            })
+            self.log_file.flush()
+        except Exception as e:
+            print(f"❌ Error logging data point: {e}")
 
     def register_data_point(self, name: str, region: Dict, pattern: str, data_type: str = 'float'):
         """
@@ -137,7 +207,7 @@ class BrowserDataCollector:
 
     def collect_all_data_points(self) -> Dict[str, Tuple]:
         """
-        Collect all registered data points.
+        Collect all registered data points with real-time logging.
 
         Returns:
             dict: {point_name: (value, confidence, raw_text)}
@@ -147,12 +217,18 @@ class BrowserDataCollector:
             frame = self.capture_region(datapoint.region)
             value, confidence, raw = datapoint.extract(frame)
             results[name] = (value, confidence, raw)
+
+            # Store in memory
             self.collected_data[name].append({
                 'timestamp': datetime.now().isoformat(),
                 'value': value,
                 'confidence': confidence,
                 'raw': raw
             })
+
+            # Log to CSV in real-time
+            self.log_data_point(name, value, confidence, raw)
+
         return results
 
     def get_current_state(self) -> Dict:
@@ -182,10 +258,20 @@ class BrowserDataCollector:
                 'validated': self.validation_status.get(name, False),
                 'last_value': self.data_points[name].last_value if name in self.data_points else None,
                 'confidence': self.data_points[name].confidence if name in self.data_points else 0.0,
-                'samples': len(self.collected_data.get(name, []))
+                'samples': len(self.collected_data.get(name, [])),
+                'log_file': self.log_filepath
             }
             for name in self.data_points.keys()
         }
+
+    def close_logger(self):
+        """Close the CSV logger file"""
+        if self.log_file:
+            try:
+                self.log_file.close()
+                print(f"✅ Logger closed for Browser {self.browser_id}")
+            except Exception as e:
+                print(f"❌ Error closing logger: {e}")
 
 
 class MultiScreenMultiplierReader:
