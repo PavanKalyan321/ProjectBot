@@ -1,0 +1,39 @@
+# SSH Keys
+aviator_key
+aviator_key.pub
+project
+project.pub
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+bot_session_*.log
+
+# Config with credentials
+cloud_sync_config.json
+
+# CSV data files (if they contain sensitive data)
+*.csv
+
+# OS
+.DS_Store
+nul

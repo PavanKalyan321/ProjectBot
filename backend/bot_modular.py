@@ -50,6 +50,7 @@ class AviatorBotML:
         self.active_bet_round = None
         self.last_balance = None
         self.last_logged_mult = None
+        self.fixed_cashout_multiplier = 2.0  # User-defined cashout target
 
         # Components (initialized after config load)
         self.detector = None
@@ -143,6 +144,20 @@ class AviatorBotML:
         
         if self.history_tracker:
             self.ml_generator = MLSignalGenerator(self.history_tracker)
+            # Pass bot instance to ML generator for accessing fixed cashout multiplier
+            self.ml_generator.bot_instance = self
+            
+            # Initialize pattern predictor and notifier
+            from pattern_predictor import PatternPredictor
+            from mobile_notifier import MobileNotifier
+            self.pattern_predictor = PatternPredictor(self.history_tracker)
+            self.mobile_notifier = MobileNotifier()
+            # Setup Discord webhook
+            self.mobile_notifier.setup_discord("https://discord.com/api/webhooks/1439324526881144852/mcT-Za8lqaZuqooFjY-ppz3ixyRnYFt010iExTm-4E6aWajHWiuHEQ9tJSe1XZO39OEI")
+            
+            # Initialize seasonal analyzer
+            from seasonal_analyzer import SeasonalAnalyzer
+            self.seasonal_analyzer = SeasonalAnalyzer(self.history_tracker)
         
         self.current_stake = self.config_manager.initial_stake
     
@@ -961,6 +976,29 @@ class AviatorBotML:
                 history_read_for_round = False
 
                 self.ml_generator.log_highest_multipliers()
+                
+                # Check for high multiplier sequence prediction
+                if self.stats["rounds_observed"] % 5 == 0:  # Check every 5 rounds
+                    prediction = self.pattern_predictor.predict_high_sequence()
+                    if prediction['prediction'] and prediction['confidence'] >= 70:
+                        current_time = time.time()
+                        if current_time - self.pattern_predictor.last_notification > self.pattern_predictor.notification_cooldown:
+                            self.mobile_notifier.notify_high_sequence_prediction(prediction)
+                            # Start tracking this prediction for validation
+                            self.pattern_predictor.start_prediction_tracking(prediction)
+                            self.pattern_predictor.last_notification = current_time
+                            print(f"📱 HIGH SEQUENCE ALERT: {prediction['confidence']}% confidence")
+                
+                # Validate active predictions with current multiplier
+                if hasattr(self, 'pattern_predictor'):
+                    self.pattern_predictor.validate_predictions(final_mult)
+                    
+                    # Send validation results if any completed
+                    for result in self.pattern_predictor.validation_results[-5:]:  # Check last 5 results
+                        if not hasattr(result, 'sent'):
+                            self.mobile_notifier.send_validation_result(result)
+                            result['sent'] = True  # Mark as sent
+                
                 self.stats["rounds_observed"] += 1
 
                 if self.dashboard:
@@ -1350,6 +1388,14 @@ class AviatorBotML:
 
                 print("\n  [ML] Analyzing patterns...")
                 signal = self.ml_generator.generate_ensemble_signal()
+                
+                # Get seasonal context and boost confidence if favorable
+                seasonal_data = self.seasonal_analyzer.get_seasonal_recommendation()
+                if seasonal_data['confidence_boost'] > 0:
+                    signal['confidence'] = min(95, signal['confidence'] + seasonal_data['confidence_boost'])
+                    print(f"  [SEASON] Seasonal boost: +{seasonal_data['confidence_boost']}% confidence")
+                    for rec in seasonal_data['recommendations']:
+                        print(f"  [SEASON] {rec}")
                 
                 if signal['should_bet']:
                     stake_used = self.current_stake
@@ -1742,6 +1788,12 @@ def main():
     # Initialize components
     bot.initialize_components()
     
+    # Start cloud sync
+    if bot.history_tracker.start_cloud_sync():
+        print("☁️ Google Sheets sync started")
+    else:
+        print("⚠️ Cloud sync not available (install: pip install gspread google-auth)")
+    
     # Load manual history for better ML predictions
     from manual_history_loader import integrate_manual_history_with_bot
     rounds_loaded = integrate_manual_history_with_bot(bot)
@@ -1853,6 +1905,8 @@ def main():
     # Save config
     bot.config_manager.save_config()
     
+    try:
+    
     # Pre-run validation for Hot Run mode
     if mode == 'hot_run':
         print("\n[CHECK] Running pre-flight checks for Hot Run mode...")
@@ -1897,6 +1951,12 @@ def main():
         bot.run_hot_run_mode()
     else: # Default to standard mode if no valid choice or '2'
         bot.run_ml_mode()
+    
+    except KeyboardInterrupt:
+        print("\n\n⏹️ Bot stopped by user")
+    finally:
+        # Stop cloud sync on exit
+        bot.history_tracker.stop_cloud_sync()
 
 
 if __name__ == "__main__":

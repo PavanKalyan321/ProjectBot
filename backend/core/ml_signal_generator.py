@@ -18,7 +18,7 @@ class MLSignalGenerator:
             history_tracker: RoundHistoryTracker instance
         """
         self.history_tracker = history_tracker
-        self.confidence_threshold = 65.0
+        self.confidence_threshold = 80.0  # Much higher threshold
         self.feature_window = 20
 
         # Initialize ML models
@@ -97,16 +97,16 @@ class MLSignalGenerator:
         # 2. Else if Position 2 has signal -> use it (aggressive)
         # 3. Else skip
 
-        # Position 1 evaluation (prefer 1.5x for safety, fallback to 2x)
+        # MUCH MORE SELECTIVE - Higher thresholds
         use_pos1 = False
         pos1_target = 1.5
         pos1_confidence = pos1_signal_15['confidence']
 
-        if pos1_signal_15['recommendation'] == 'BET' and pos1_confidence >= 55:
+        if pos1_signal_15['recommendation'] == 'BET' and pos1_confidence >= 75:
             use_pos1 = True
             pos1_target = 1.5
             pos1_green_prob = pos1_signal_15['green_probability']
-        elif pos1_signal_20['recommendation'] == 'BET' and pos1_signal_20['confidence'] >= 50:
+        elif pos1_signal_20['recommendation'] == 'BET' and pos1_signal_20['confidence'] >= 70:
             use_pos1 = True
             pos1_target = 2.0
             pos1_confidence = pos1_signal_20['confidence']
@@ -148,17 +148,17 @@ class MLSignalGenerator:
 
             skip_details.append("🎯 POSITION 1 (ML Green Classifier):")
             skip_details.append(f"   • 1.5x Target: {pos1_15_prob:.1f}% green probability, {pos1_signal_15['confidence']:.1f}% confidence")
-            skip_details.append(f"     ↳ Threshold: Need 55% confidence (currently {pos1_signal_15['confidence']:.1f}%)")
+            skip_details.append(f"     ↳ Threshold: Need 75% confidence (currently {pos1_signal_15['confidence']:.1f}%)")
 
-            if pos1_signal_15['confidence'] < 55:
-                gap = 55 - pos1_signal_15['confidence']
+            if pos1_signal_15['confidence'] < 75:
+                gap = 75 - pos1_signal_15['confidence']
                 skip_details.append(f"     ↳ Gap: {gap:.1f}% below threshold - pattern not strong enough")
 
             skip_details.append(f"   • 2.0x Target: {pos1_20_prob:.1f}% green probability, {pos1_signal_20['confidence']:.1f}% confidence")
-            skip_details.append(f"     ↳ Threshold: Need 50% confidence (currently {pos1_signal_20['confidence']:.1f}%)")
+            skip_details.append(f"     ↳ Threshold: Need 70% confidence (currently {pos1_signal_20['confidence']:.1f}%)")
 
-            if pos1_signal_20['confidence'] < 50:
-                gap = 50 - pos1_signal_20['confidence']
+            if pos1_signal_20['confidence'] < 70:
+                gap = 70 - pos1_signal_20['confidence']
                 skip_details.append(f"     ↳ Gap: {gap:.1f}% below threshold - pattern not strong enough")
 
             # Position 2 analysis
@@ -177,9 +177,9 @@ class MLSignalGenerator:
                 skip_details.append(f"     ↳ Waiting for pattern to cool down before betting")
             else:
                 skip_details.append(f"   • Cold streak: {low_count}/10 rounds below 2x")
-                skip_details.append(f"     ↳ Threshold: Need 7+ low rounds (currently {low_count})")
-                if low_count < 7:
-                    skip_details.append(f"     ↳ Gap: Need {7 - low_count} more low rounds to trigger bet")
+                skip_details.append(f"     ↳ Threshold: Need 8+ low rounds (currently {low_count})")
+                if low_count < 8:
+                    skip_details.append(f"     ↳ Gap: Need {8 - low_count} more low rounds to trigger bet")
 
             skip_details.append(f"   • Pattern strength: {pos2_signal['confidence']:.1f}% (too weak)")
 
@@ -190,7 +190,7 @@ class MLSignalGenerator:
                 'confidence': max(pos1_confidence, pos2_signal['confidence']),
                 'prediction': 0,
                 'range': (0, 0),
-                'reason': f"Position 1: {pos1_confidence:.1f}% (need 55%), Position 2: {pos2_signal['reason']}",
+                'reason': f"Position 1: {pos1_confidence:.1f}% (need 75%), Position 2: {pos2_signal['reason']}",
                 'log': f"Position 1 (1.5x): {pos1_signal_15['green_probability']:.1f}% green prob, {pos1_signal_15['confidence']:.1f}% confidence\n"
                        f"Position 1 (2.0x): {pos1_signal_20['green_probability']:.1f}% green prob, {pos1_signal_20['confidence']:.1f}% confidence\n"
                        f"Position 2 (3x+): {pos2_signal['reason']}",
@@ -245,9 +245,9 @@ class MLSignalGenerator:
                 'target_multiplier': 0
             }
 
-        if low_count >= 7:
+        if low_count >= 8:  # More selective - need 8+ low rounds
             # Cold streak - bet on 3x
-            confidence = min(70, 40 + (low_count * 5))  # Higher confidence for longer streak
+            confidence = min(75, 45 + (low_count * 5))  # Higher confidence for longer streak
             return {
                 'should_bet': True,
                 'confidence': confidence,
@@ -320,8 +320,10 @@ class MLSignalGenerator:
         # Expected value calculation
         expected_value = round(ensemble_pred * (ensemble_conf / 100), 2)
 
-        # Decision logic
-        should_bet = ensemble_conf >= self.confidence_threshold
+        # MUCH MORE SELECTIVE - Higher threshold + ALL MODELS MUST AGREE
+        user_cashout = getattr(self, 'bot_instance', {}).fixed_cashout_multiplier if hasattr(self, 'bot_instance') else 2.0
+        all_models_agree = self._all_models_above_threshold(recent_multipliers, user_cashout)
+        should_bet = ensemble_conf >= max(80.0, self.confidence_threshold) and all_models_agree
 
         # Adjust confidence based on prediction agreement
         if pred_std < 0.3:
@@ -637,6 +639,22 @@ class MLSignalGenerator:
             window: Number of rounds to use for features
         """
         self.feature_window = max(5, window)
+    
+    def _all_models_above_threshold(self, recent_multipliers, threshold):
+        """Check if all ML models predict above the threshold."""
+        try:
+            model_outputs = self.ml_models.predict(recent_multipliers)
+            if not model_outputs or len(model_outputs) < 3:
+                return False
+            
+            # Check if ALL models predict above threshold
+            for model in model_outputs:
+                if model.get('prediction', 0) <= threshold:
+                    return False
+            
+            return True
+        except:
+            return False
 
     def retrain_models(self, csv_file='aviator_rounds_history.csv'):
         """

@@ -9,16 +9,23 @@ from collections import deque
 import threading
 from queue import Queue
 
+try:
+    from ..cloud_sync import CloudSync
+    CLOUD_SYNC_AVAILABLE = True
+except ImportError:
+    CLOUD_SYNC_AVAILABLE = False
+
 
 class RoundHistoryTracker:
     """Track and log round history to CSV."""
 
-    def __init__(self, history_region=None):
+    def __init__(self, history_region=None, enable_cloud_sync=True):
         """
         Initialize history tracker.
 
         Args:
             history_region: Tuple (x, y, width, height) for history region (optional)
+            enable_cloud_sync: Enable automatic Google Sheets sync (default True)
         """
         self.history_region = history_region
         self.csv_file = "aviator_rounds_history.csv"
@@ -26,6 +33,12 @@ class RoundHistoryTracker:
         self.last_log_time = 0
         self.log_cooldown = 2.0
         self.local_history_buffer = deque(maxlen=10)
+        
+        # Cloud sync setup - always store locally first, then sync to cloud
+        self.cloud_sync = None
+        if enable_cloud_sync and CLOUD_SYNC_AVAILABLE:
+            self.cloud_sync = CloudSync(self.csv_file, sync_interval=8)
+            print("☁️ Cloud sync initialized - data stored locally AND in Google Sheets")
 
         # Performance optimization: In-memory cache
         self._cache = None
@@ -179,6 +192,9 @@ class RoundHistoryTracker:
 
             # Add to async write queue (NON-BLOCKING!)
             self._write_queue.put(row_data)
+            
+            # Ensure local CSV is written first, then cloud sync happens automatically
+            # The cloud sync runs in background and reads from the CSV file
 
             # Update cache immediately without waiting for disk write
             with self._cache_lock:
@@ -370,3 +386,20 @@ class RoundHistoryTracker:
         except Exception as e:
             print(f"Error getting statistics: {e}")
             return {}
+    
+    def start_cloud_sync(self):
+        """Start cloud sync if available."""
+        if self.cloud_sync:
+            return self.cloud_sync.start_sync()
+        return False
+    
+    def stop_cloud_sync(self):
+        """Stop cloud sync if running."""
+        if self.cloud_sync:
+            self.cloud_sync.stop_sync()
+    
+    def get_cloud_sync_status(self):
+        """Get cloud sync status."""
+        if self.cloud_sync:
+            return self.cloud_sync.get_status()
+        return {"available": False}
