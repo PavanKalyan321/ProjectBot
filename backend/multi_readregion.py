@@ -12,6 +12,7 @@ from datetime import datetime
 from collections import defaultdict
 from queue import Queue
 from typing import Dict, List, Tuple, Optional
+import sys
 
 from utils.betting_helpers import (
     set_stake_verified,
@@ -22,6 +23,169 @@ from utils.betting_helpers import (
     reset_stake
 )
 from utils.data_logger import get_round_logger
+
+
+class DataPoint:
+    """Represents a single data point to be extracted from screen"""
+    def __init__(self, name: str, region: Dict, pattern: str, data_type: str = 'float'):
+        """
+        Initialize a data point.
+
+        Args:
+            name: Display name (e.g., 'Balance', 'Multiplier')
+            region: {'top', 'left', 'width', 'height'} coordinates
+            pattern: Regex pattern to extract value
+            data_type: 'float', 'int', 'string'
+        """
+        self.name = name
+        self.region = region
+        self.pattern = pattern
+        self.data_type = data_type
+        self.last_value = None
+        self.last_raw = None
+        self.confidence = 0.0
+        self.errors = []
+
+    def extract(self, frame) -> Tuple[Optional, float, str]:
+        """
+        Extract value from frame.
+
+        Returns:
+            tuple: (value, confidence: 0-1, raw_ocr_text)
+        """
+        if frame is None or len(frame.shape) < 2:
+            return None, 0.0, ""
+
+        try:
+            # Preprocess
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+
+            # OCR
+            config = r'--psm 7 --oem 3'
+            raw = pytesseract.image_to_string(thresh, config=config).strip().replace('\n', '').replace(' ', '')
+
+            # Match pattern
+            match = re.search(self.pattern, raw)
+            if not match:
+                return None, 0.0, raw
+
+            value_str = match.group(1) if match.groups() else match.group(0)
+
+            # Convert to appropriate type
+            if self.data_type == 'float':
+                value = float(value_str)
+                confidence = 0.95
+            elif self.data_type == 'int':
+                value = int(value_str)
+                confidence = 0.95
+            else:
+                value = value_str
+                confidence = 0.9
+
+            self.last_value = value
+            self.last_raw = raw
+            self.confidence = confidence
+
+            return value, confidence, raw
+
+        except Exception as e:
+            self.errors.append(str(e))
+            return None, 0.0, ""
+
+
+class BrowserDataCollector:
+    """
+    Collects all game data points from a single browser instance.
+    Tracks: balance, multiplier, place bet status, stake, number of players.
+    """
+
+    def __init__(self, browser_id: int):
+        """
+        Initialize collector for a browser.
+
+        Args:
+            browser_id: Browser ID (0-5)
+        """
+        self.browser_id = browser_id
+        self.data_points = {}
+        self.collected_data = defaultdict(list)
+        self.validation_status = {}
+
+    def register_data_point(self, name: str, region: Dict, pattern: str, data_type: str = 'float'):
+        """
+        Register a data point to be collected from this browser.
+
+        Args:
+            name: Display name ('balance', 'multiplier', 'place_bet', 'stake', 'players')
+            region: Screen region coordinates
+            pattern: Regex pattern for extraction
+            data_type: 'float', 'int', 'string'
+        """
+        self.data_points[name] = DataPoint(name, region, pattern, data_type)
+        self.validation_status[name] = False
+
+    def capture_region(self, region: Dict) -> Optional[np.ndarray]:
+        """Capture a screen region"""
+        try:
+            with mss.mss() as sct:
+                img = np.array(sct.grab(region))
+                return img[..., :3]
+        except Exception as e:
+            print(f"❌ Capture error for browser {self.browser_id}: {e}")
+            return None
+
+    def collect_all_data_points(self) -> Dict[str, Tuple]:
+        """
+        Collect all registered data points.
+
+        Returns:
+            dict: {point_name: (value, confidence, raw_text)}
+        """
+        results = {}
+        for name, datapoint in self.data_points.items():
+            frame = self.capture_region(datapoint.region)
+            value, confidence, raw = datapoint.extract(frame)
+            results[name] = (value, confidence, raw)
+            self.collected_data[name].append({
+                'timestamp': datetime.now().isoformat(),
+                'value': value,
+                'confidence': confidence,
+                'raw': raw
+            })
+        return results
+
+    def get_current_state(self) -> Dict:
+        """Get current state of all data points"""
+        return {
+            name: {
+                'value': dp.last_value,
+                'confidence': dp.confidence,
+                'raw': dp.last_raw,
+                'validated': self.validation_status.get(name, False)
+            }
+            for name, dp in self.data_points.items()
+        }
+
+    def validate_data_point(self, name: str, is_valid: bool):
+        """Mark a data point as validated by user"""
+        self.validation_status[name] = is_valid
+        if is_valid:
+            print(f"✅ {name.upper()} validated for Browser {self.browser_id}")
+        else:
+            print(f"❌ {name.upper()} validation failed for Browser {self.browser_id}")
+
+    def get_validation_report(self) -> Dict:
+        """Get validation report for all data points"""
+        return {
+            name: {
+                'validated': self.validation_status.get(name, False),
+                'last_value': self.data_points[name].last_value if name in self.data_points else None,
+                'confidence': self.data_points[name].confidence if name in self.data_points else 0.0,
+                'samples': len(self.collected_data.get(name, []))
+            }
+            for name in self.data_points.keys()
+        }
 
 
 class MultiScreenMultiplierReader:
@@ -525,5 +689,222 @@ def main_multi_browser_test():
         print(json.dumps(report, indent=2, default=str))
 
 
+def setup_single_browser_validation():
+    """
+    Interactive setup for a single browser with coordinate validation.
+    Goes through each data point one by one.
+    """
+    print("\n" + "="*80)
+    print("🔧 BROWSER SETUP - ONE BY ONE VALIDATION")
+    print("="*80)
+
+    # Get browser ID
+    while True:
+        try:
+            browser_id = int(input("\nEnter Browser ID (0-5): ").strip())
+            if 0 <= browser_id <= 5:
+                break
+            print("❌ Please enter a number between 0 and 5")
+        except ValueError:
+            print("❌ Invalid input. Please enter a number.")
+
+    # Create collector
+    collector = BrowserDataCollector(browser_id)
+
+    # Define all data points to collect
+    data_points_config = [
+        {
+            'name': 'balance',
+            'description': 'Player balance/account balance',
+            'example_pattern': r'(\d+\.?\d*)',
+            'data_type': 'float'
+        },
+        {
+            'name': 'multiplier',
+            'description': 'Current multiplier value',
+            'example_pattern': r'(\d+\.\d+)',
+            'data_type': 'float'
+        },
+        {
+            'name': 'place_bet',
+            'description': 'Place bet button/status',
+            'example_pattern': r'(PLACE|BET|ACTIVE|INACTIVE)',
+            'data_type': 'string'
+        },
+        {
+            'name': 'stake',
+            'description': 'Bet stake amount',
+            'example_pattern': r'(\d+\.?\d*)',
+            'data_type': 'float'
+        },
+        {
+            'name': 'players',
+            'description': 'Number of players',
+            'example_pattern': r'(\d+)',
+            'data_type': 'int'
+        }
+    ]
+
+    # Setup each data point
+    for idx, config in enumerate(data_points_config, 1):
+        print(f"\n{'-'*80}")
+        print(f"📍 DATA POINT {idx}/5: {config['name'].upper()}")
+        print(f"Description: {config['description']}")
+        print(f"Data type: {config['data_type']}")
+        print(f"Example pattern: {config['example_pattern']}")
+        print(f"{'-'*80}")
+
+        # Get coordinates
+        print(f"\nEnter coordinates for {config['name']}:")
+        try:
+            top = int(input("  Top (pixels from top): ").strip())
+            left = int(input("  Left (pixels from left): ").strip())
+            width = int(input("  Width (pixels): ").strip())
+            height = int(input("  Height (pixels): ").strip())
+
+            region = {'top': top, 'left': left, 'width': width, 'height': height}
+
+            # Get pattern
+            pattern = input(f"  Enter regex pattern [{config['example_pattern']}]: ").strip()
+            if not pattern:
+                pattern = config['example_pattern']
+
+            # Register data point
+            collector.register_data_point(
+                config['name'],
+                region,
+                pattern,
+                config['data_type']
+            )
+
+            print(f"✅ Registered {config['name']} data point")
+
+        except ValueError as e:
+            print(f"❌ Invalid input: {e}")
+            continue
+
+    # Validation loop
+    print(f"\n" + "="*80)
+    print("🧪 VALIDATION PHASE - Testing each data point")
+    print("="*80)
+
+    all_validated = False
+    iteration = 0
+
+    while not all_validated:
+        iteration += 1
+        print(f"\n[Iteration {iteration}]")
+
+        # Collect data
+        results = collector.collect_all_data_points()
+
+        # Display results
+        print("\n📊 CURRENT VALUES:")
+        print("-" * 80)
+        for name, (value, confidence, raw) in results.items():
+            status = "✅" if collector.validation_status[name] else "⏳"
+            confidence_pct = f"{confidence*100:.1f}%" if value is not None else "N/A"
+            print(f"{status} {name:15} | Value: {str(value):15} | Confidence: {confidence_pct:8} | Raw: {raw[:50]}")
+
+        print("-" * 80)
+
+        # Get user input
+        print("\nOptions:")
+        print("  V<point> - Validate a data point (e.g., 'Vbalance', 'Vmultiplier')")
+        print("  R<point> - Re-enter coordinates for a data point")
+        print("  S       - Show summary")
+        print("  Q       - Quit and save")
+
+        user_input = input("\nEnter command: ").strip().upper()
+
+        if user_input == 'S':
+            # Show summary
+            print("\n" + "="*80)
+            print("📋 VALIDATION SUMMARY")
+            print("="*80)
+            report = collector.get_validation_report()
+            for point_name, report_data in report.items():
+                status = "✅ VALIDATED" if report_data['validated'] else "⏳ PENDING"
+                print(f"\n{status}")
+                print(f"  Data Point: {point_name}")
+                print(f"  Last Value: {report_data['last_value']}")
+                print(f"  Confidence: {report_data['confidence']*100:.1f}%")
+                print(f"  Samples: {report_data['samples']}")
+
+            # Check if all validated
+            all_validated = all(report_data['validated'] for report_data in report.values())
+
+            if all_validated:
+                print("\n" + "="*80)
+                print("🎉 ALL DATA POINTS VALIDATED!")
+                print("="*80)
+                break
+
+        elif user_input.startswith('V'):
+            point_name = user_input[1:].lower()
+            if point_name in collector.data_points:
+                collector.validate_data_point(point_name, True)
+            else:
+                print(f"❌ Unknown data point: {point_name}")
+
+        elif user_input.startswith('R'):
+            point_name = user_input[1:].lower()
+            if point_name in collector.data_points:
+                print(f"\nRe-entering coordinates for {point_name}:")
+                try:
+                    top = int(input("  Top (pixels from top): ").strip())
+                    left = int(input("  Left (pixels from left): ").strip())
+                    width = int(input("  Width (pixels): ").strip())
+                    height = int(input("  Height (pixels): ").strip())
+
+                    new_region = {'top': top, 'left': left, 'width': width, 'height': height}
+                    collector.data_points[point_name].region = new_region
+                    print(f"✅ Updated {point_name} coordinates")
+                except ValueError:
+                    print("❌ Invalid input")
+            else:
+                print(f"❌ Unknown data point: {point_name}")
+
+        elif user_input == 'Q':
+            print("\n⚠️  Exiting without validating all points")
+            break
+
+        time.sleep(0.5)
+
+    # Save configuration
+    config_to_save = {
+        'browser_id': browser_id,
+        'data_points': {
+            name: {
+                'region': dp.region,
+                'pattern': dp.pattern,
+                'data_type': dp.data_type,
+                'validated': collector.validation_status[name]
+            }
+            for name, dp in collector.data_points.items()
+        },
+        'timestamp': datetime.now().isoformat()
+    }
+
+    filename = f"browser_{browser_id}_config.json"
+    with open(filename, 'w') as f:
+        json.dump(config_to_save, f, indent=2)
+
+    print(f"\n✅ Configuration saved to {filename}")
+    print("\nYou can now add coordinates for the next browser or proceed with testing.")
+
+    return collector, config_to_save
+
+
 if __name__ == "__main__":
-    main_multi_browser_test()
+    print("�� Multi-Browser Data Collector")
+    print("Choose mode:")
+    print("1. Setup single browser (interactive validation)")
+    print("2. Run multi-browser test")
+
+    choice = input("\nEnter choice (1-2): ").strip()
+
+    if choice == '1':
+        collector, config = setup_single_browser_validation()
+    else:
+        main_multi_browser_test()
