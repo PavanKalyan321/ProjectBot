@@ -54,9 +54,17 @@ Username: pk
 Password: [your-password]
 ```
 
-## Step 5: Enable SSL/TLS
+## Step 5: Disable SSH Tunnel (Important!)
 
-DBeaver should automatically detect SSL requirement, but to verify:
+**This is a common issue - make sure to do this:**
+
+1. Click the **SSH** tab
+2. **UNCHECK** "Use SSH Tunnel"
+   - DigitalOcean connections don't need SSH tunneling
+   - Having this checked causes "SSHJ tunnel" errors
+3. Leave all other SSH settings as default
+
+## Step 5b: Enable SSL/TLS
 
 1. Click the **SSL** tab
 2. Check **Use SSL**
@@ -200,18 +208,34 @@ FROM session_logs
 ORDER BY start_time DESC;
 ```
 
+## ⚠️ Common Issues & Quick Fixes
+
+### SSH Tunnel Error - "Error establishing SSHJ tunnel"
+
+**Quick Fix:**
+1. Go to **SSH** tab in connection settings
+2. **UNCHECK** "Use SSH Tunnel"
+3. Click **Test Connection** again
+
+✓ This solves 95% of connection issues!
+
+**Why?** DigitalOcean PostgreSQL doesn't need SSH tunneling. Having it enabled causes timeout errors.
+
+For detailed troubleshooting, see [DBEAVER_TROUBLESHOOTING.md](DBEAVER_TROUBLESHOOTING.md)
+
+---
+
 ## Troubleshooting
 
-### Connection Timeout
-**Problem:** "Connection timeout" or "Could not connect to server"
+### Connection Timeout / SSHJ Tunnel Error
+**Problem:** "Connect timed out" or "Error establishing SSHJ tunnel"
 
-**Solutions:**
-1. Verify host and port are correct:
-   - Host: `db-main-do-user-28557476-0.h.db.ondigitalocean.com`
-   - Port: `25060`
-2. Check your internet connection
-3. Verify firewall allows outbound connections on port 25060
-4. Check if DigitalOcean database is running
+**Quick Fix:**
+1. SSH Tab: **UNCHECK** "Use SSH Tunnel" ← This is usually the fix
+2. SSL Tab: **CHECK** "Use SSL" with Mode = `require`
+3. Test again
+
+**Detailed Help:** See [DBEAVER_TROUBLESHOOTING.md](DBEAVER_TROUBLESHOOTING.md#ssh-tunnel-error---error-establishing-sshj-tunnel)
 
 ### SSL/TLS Errors
 **Problem:** "SSL error" or "certificate verify failed"
@@ -221,6 +245,8 @@ ORDER BY start_time DESC;
 2. Try setting **SSL Mode** to `prefer` instead
 3. Uncheck **Validate Server Certificate** if testing locally
 4. Download DigitalOcean CA certificate and add it
+
+**Full guide:** See [DBEAVER_TROUBLESHOOTING.md](DBEAVER_TROUBLESHOOTING.md#ssl-error-certificate-verify-failed)
 
 ### Authentication Failed
 **Problem:** "Authentication failed" or "role pk does not exist"
