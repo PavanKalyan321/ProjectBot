@@ -97,7 +97,7 @@ def log_crash_round(
                 multiplier_detection_confidence=ocr_confidence,
                 error_type=error_type,
                 error_description=error_description,
-                metadata=metadata or {},
+                meta_data=metadata or {},
             )
 
             session.add(round_record)

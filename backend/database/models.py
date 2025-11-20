@@ -17,6 +17,9 @@ from sqlalchemy.sql import expression
 
 Base = declarative_base()
 
+# Use JSONB for PostgreSQL, fall back to JSON for SQLite
+JSON_TYPE = JSONB
+
 # ============================================================================
 # ENUM DEFINITIONS (matching PostgreSQL enums)
 # ============================================================================
@@ -183,7 +186,7 @@ class CrashGameRound(Base):
     retry_count = Column(Integer, default=0)
 
     # SECTION 9: Metadata (JSONB)
-    metadata = Column(JSONB, nullable=True)
+    meta_data = Column(JSON_TYPE, nullable=True, name="metadata")
 
     # Record management
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -300,7 +303,7 @@ class AnalyticsRoundSignal(Base):
     prediction_error = Column(DECIMAL(10, 4), nullable=True)
 
     # Feature vector (JSON for complex data)
-    feature_vector = Column(JSONB, nullable=True)
+    feature_vector = Column(JSON_TYPE, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     date_bucket = Column(String(10), nullable=True)
