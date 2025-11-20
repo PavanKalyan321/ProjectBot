@@ -1,0 +1,245 @@
+================================================================================
+  CRASH GAME DATABASE - QUICK REFERENCE CARD
+================================================================================
+
+CURRENT STATUS:
+  Database Created:  ✓ Yes (9 tables)
+  Sample Data:       ✓ Yes (all tables populated)
+  Network Issue:     ⚠ Port 25060 blocked by firewall
+  Next Action:       → Add DigitalOcean firewall rule
+
+================================================================================
+  WHAT YOU NEED TO DO NOW (5 MINUTES)
+================================================================================
+
+1. GET YOUR IP
+   Visit: https://www.whatismyipaddress.com
+   Write it down (looks like: 203.0.113.45)
+
+2. LOG INTO DIGITALOCEAN
+   Go to: https://cloud.digitalocean.com/login
+   Sign in with your account
+
+3. ADD FIREWALL RULE
+   Click: Databases → Your Database → Networking tab
+   Click: "Add Rule"
+   Fill in:
+     - Type: PostgreSQL
+     - Port: 25060
+     - IP: your.ip.address/32
+   Click: "Add Rule"
+   Wait: 30-60 seconds
+
+4. TEST CONNECTION
+   Run: DB_PASSWORD="your_password" python c:\Project\test_connection.py
+   Should see: [OK] Connection successful!
+
+================================================================================
+  DATABASE CREDENTIALS
+================================================================================
+
+  Host:     db-main-do-user-28557476-0.h.db.ondigitalocean.com
+  Port:     25060
+  Database: defaultdb
+  User:     pk
+  Password: [your actual password]
+  SSL:      require (IMPORTANT!)
+
+================================================================================
+  IMPORTANT GUIDES
+================================================================================
+
+  READ FIRST: FIREWALL_FIX_SUMMARY.md
+  - Quick overview of issue
+  - What to do next
+
+  THEN READ: DIGITALOCEAN_FIREWALL_SETUP.md
+  - Step-by-step with screenshots
+  - Troubleshooting help
+  - Security tips
+
+  ALSO AVAILABLE:
+  - NETWORK_DIAGNOSTIC.md - Network test results
+  - test_connection.py - Python connection test script
+  - DBEAVER_SETUP.md - GUI setup guide
+  - START_HERE.md - Database usage guide
+
+================================================================================
+  DATABASE STRUCTURE
+================================================================================
+
+  9 TABLES TOTAL:
+
+  Main Tables (3):
+    ✓ bot_vm_registration - Bot configuration
+    ✓ game_platform_config - Game platforms
+    ✓ crash_game_rounds - Round history
+
+  Analytics Tables (3) - For ML & Signals:
+    ✓ analytics_round_multipliers - Training data
+    ✓ analytics_round_signals - ML features
+    ✓ analytics_round_outcomes - Statistics
+
+  Supporting Tables (3):
+    ✓ session_logs - Session tracking
+    ✓ error_logs - Error logging
+    ✓ ocr_validation_logs - OCR quality
+
+================================================================================
+  AFTER FIREWALL IS FIXED
+================================================================================
+
+  CONNECT WITH DBEAVER:
+    1. Database → New Connection → PostgreSQL
+    2. Host: db-main-do-user-28557476-0.h.db.ondigitalocean.com
+    3. Port: 25060
+    4. Database: defaultdb
+    5. User: pk
+    6. SSH tab: UNCHECK "Use SSH Tunnel"
+    7. SSL tab: CHECK "Use SSL", set to "require"
+    8. Test Connection
+
+  CONNECT WITH PYTHON:
+    DB_PASSWORD="your_password" python test_connection.py
+
+  START LOGGING:
+    from backend.database import log_crash_round
+    log_crash_round(bot_id="...", session_id="...", ...)
+
+================================================================================
+  TROUBLESHOOTING
+================================================================================
+
+  Still getting "Connection timed out"?
+    → Go to DIGITALOCEAN_FIREWALL_SETUP.md
+    → Check if rule is actually added
+    → Wait another 2-3 minutes
+    → Try editing and saving rule again
+
+  "Port 25060 is blocked"?
+    → Firewall rule not added yet
+    → Follow the 4-step process above
+
+  Can't find Networking tab?
+    → Look for "Settings" or "Connections" tab
+    → Contact DigitalOcean support if still stuck
+
+  Your IP changed?
+    → Find new IP: whatismyipaddress.com
+    → Update firewall rule with new IP
+    → Or use /24 network block (less secure)
+
+================================================================================
+  TIMELINE
+================================================================================
+
+  Get IP:               1 minute
+  Log into DigitalOcean: 1 minute
+  Add firewall rule:    2 minutes
+  Wait for activation:  1 minute
+  ────────────────────────────
+  TOTAL:                5 minutes
+
+================================================================================
+  FILE LOCATIONS
+================================================================================
+
+  Core Database:
+    backend/database/__init__.py
+    backend/database/config.py (← UPDATE PASSWORD HERE)
+    backend/database/models.py
+    backend/database/logger.py
+    backend/database/utils.py
+
+  Documentation:
+    FIREWALL_FIX_SUMMARY.md ← START HERE
+    DIGITALOCEAN_FIREWALL_SETUP.md ← DETAILED GUIDE
+    NETWORK_DIAGNOSTIC.md
+    START_HERE.md
+    DBEAVER_SETUP.md
+    INTEGRATION_GUIDE.md
+
+  Test Scripts:
+    test_connection.py
+    test_database_local.py
+    test_database_insertion.py
+
+================================================================================
+  KEY COMMANDS
+================================================================================
+
+  Test Python connection:
+    DB_PASSWORD="your_password" python c:\Project\test_connection.py
+
+  Test local database:
+    python c:\Project\test_database_local.py
+
+  Update password in config:
+    Open: backend/database/config.py
+    Edit: DB_PASSWORD="your_actual_password"
+
+================================================================================
+  GIT BRANCH
+================================================================================
+
+  Current branch: feature/analytics-database
+  Status: All code committed and pushed
+  Ready for: Pull request to main branch
+
+  Git commands:
+    git status                  (check status)
+    git log --oneline           (see commits)
+    git push origin feature/analytics-database (push updates)
+
+================================================================================
+  SUCCESS INDICATORS
+================================================================================
+
+  Once firewall is fixed, you'll see:
+
+    ✓ test_connection.py returns "Connection successful"
+    ✓ DBeaver shows all 9 tables in database
+    ✓ Python can import and use database functions
+    ✓ Sample data from test is visible in tables
+
+================================================================================
+  NEXT STEPS (IN ORDER)
+================================================================================
+
+  1. [ ] Get your IP from whatismyipaddress.com
+  2. [ ] Read FIREWALL_FIX_SUMMARY.md
+  3. [ ] Read DIGITALOCEAN_FIREWALL_SETUP.md
+  4. [ ] Log into DigitalOcean console
+  5. [ ] Add firewall rule for your IP
+  6. [ ] Wait 30-60 seconds
+  7. [ ] Run test_connection.py
+  8. [ ] See "Connection successful" message
+  9. [ ] Connect with DBeaver (optional)
+  10. [ ] Start logging bot data
+
+================================================================================
+  SUPPORT
+================================================================================
+
+  GitHub Issue Tracker:
+    https://github.com/PavanKalyan321/ProjectBot/issues
+
+  DigitalOcean Support:
+    https://www.digitalocean.com/support
+
+  DigitalOcean Database Docs:
+    https://docs.digitalocean.com/products/databases/postgresql/
+
+  PostgreSQL Docs:
+    https://www.postgresql.org/docs/
+
+================================================================================
+
+Created: November 21, 2025
+Database: DigitalOcean PostgreSQL (defaultdb)
+Status: Awaiting firewall configuration
+Estimated Time to Full Access: 5-10 minutes
+
+Ready to fix the firewall? Start with FIREWALL_FIX_SUMMARY.md →
+
+================================================================================
