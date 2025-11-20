@@ -15,8 +15,14 @@ pillow>=9.0.0  # Image processing
 
 # Dashboard and API
 flask>=2.0.0  # For dashboard server
+flask-socketio>=5.0.0  # For real-time dashboard updates
 python-dotenv>=0.19.0  # For config management
 requests>=2.26.0  # For API calls
+
+# Database support
+sqlalchemy>=1.4.0  # SQL toolkit and ORM
+psycopg2-binary>=2.9.0  # PostgreSQL database adapter
+pymysql>=1.0.0  # MySQL database adapter
 
 # Visualization
 matplotlib>=3.4.0  # For plotting in dashboard

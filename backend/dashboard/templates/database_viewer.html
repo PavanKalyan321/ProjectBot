@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Table Viewer - DigitalOcean Droplet</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .panel-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .connection-item {
+            padding: 12px;
+            margin-bottom: 8px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .connection-item:hover {
+            background: #f5f5f5;
+            border-color: #667eea;
+        }
+
+        .connection-item.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .connection-name {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .connection-info {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .connection-item.active .connection-info {
+            color: rgba(255,255,255,0.8);
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .status-connected {
+            background: #4caf50;
+            color: white;
+        }
+
+        .status-disconnected {
+            background: #e0e0e0;
+            color: #666;
+        }
+
+        .table-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .table-item {
+            padding: 10px;
+            margin-bottom: 6px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .table-item:hover {
+            background: #f5f5f5;
+            border-color: #764ba2;
+        }
+
+        .table-item.active {
+            background: #764ba2;
+            color: white;
+            border-color: #764ba2;
+        }
+
+        .table-name {
+            font-weight: 600;
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+
+        .table-meta {
+            font-size: 11px;
+            color: #999;
+        }
+
+        .table-item.active .table-meta {
+            color: rgba(255,255,255,0.8);
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin-right: 10px;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+
+        .btn-success {
+            background: #4caf50;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #45a049;
+        }
+
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #da190b;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: #f5f5f5;
+            border: none;
+            border-radius: 6px 6px 0 0;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            background: white;
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .data-table-container {
+            overflow-x: auto;
+            max-height: 600px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .data-table th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            position: sticky;
+            top: 0;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .data-table th:hover {
+            background: #5568d3;
+        }
+
+        .data-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .data-table tr:hover {
+            background: #f5f5f5;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .pagination button {
+            padding: 8px 12px;
+            border: 1px solid #e0e0e0;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .pagination button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .pagination .page-info {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .query-editor {
+            width: 100%;
+            min-height: 150px;
+            padding: 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            resize: vertical;
+        }
+
+        .query-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            align-items: center;
+        }
+
+        .schema-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .schema-table th {
+            background: #f5f5f5;
+            padding: 10px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .schema-table td {
+            padding: 10px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .badge-success {
+            background: #4caf50;
+            color: white;
+        }
+
+        .badge-warning {
+            background: #ff9800;
+            color: white;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .empty-state-text {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .filter-section {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .filter-input {
+            padding: 8px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .stat-box {
+            flex: 1;
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🗄️ Database Table Viewer</h1>
+            <p>View and explore database tables from DigitalOcean droplets</p>
+        </div>
+
+        <!-- Main Grid -->
+        <div class="main-grid">
+            <!-- Left Sidebar -->
+            <div>
+                <!-- Connections Panel -->
+                <div class="panel" style="margin-bottom: 20px;">
+                    <div class="panel-title">Database Connections</div>
+                    <div id="connectionsList">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            Loading connections...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tables Panel -->
+                <div class="panel">
+                    <div class="panel-title">Tables</div>
+                    <div id="tablesList">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📋</div>
+                            <div class="empty-state-text">Select a connection</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div>
+                <div class="panel">
+                    <!-- Alerts -->
+                    <div id="alertContainer"></div>
+
+                    <!-- Tabs -->
+                    <div class="tabs">
+                        <button class="tab active" onclick="switchTab('data')">Data</button>
+                        <button class="tab" onclick="switchTab('schema')">Schema</button>
+                        <button class="tab" onclick="switchTab('query')">Query</button>
+                    </div>
+
+                    <!-- Data Tab -->
+                    <div id="dataTab" class="tab-content active">
+                        <div id="dataContent">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">📊</div>
+                                <div class="empty-state-text">Select a table to view data</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Schema Tab -->
+                    <div id="schemaTab" class="tab-content">
+                        <div id="schemaContent">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">🏗️</div>
+                                <div class="empty-state-text">Select a table to view schema</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Query Tab -->
+                    <div id="queryTab" class="tab-content">
+                        <div class="query-controls">
+                            <button class="btn btn-success" onclick="executeQuery()">Execute Query</button>
+                            <button class="btn btn-secondary" onclick="clearQuery()">Clear</button>
+                            <span style="color: #999; font-size: 12px; margin-left: auto;">Only SELECT queries allowed</span>
+                        </div>
+                        <textarea id="queryEditor" class="query-editor" placeholder="SELECT * FROM table_name LIMIT 10;"></textarea>
+                        <div id="queryResults" style="margin-top: 20px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let currentConnection = null;
+        let currentTable = null;
+        let currentPage = 1;
+        let perPage = 50;
+        let orderBy = null;
+        let orderDir = 'ASC';
+
+        // Load connections on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            loadConnections();
+        });
+
+        // Load database connections
+        async function loadConnections() {
+            try {
+                const response = await fetch('/api/connections');
+                const data = await response.json();
+
+                const container = document.getElementById('connectionsList');
+
+                if (data.success && data.connections.length > 0) {
+                    container.innerHTML = data.connections.map(conn => `
+                        <div class="connection-item" onclick="selectConnection('${conn.name}')">
+                            <div class="connection-name">
+                                ${conn.name}
+                                <span class="status-badge ${conn.connected ? 'status-connected' : 'status-disconnected'}">
+                                    ${conn.connected ? 'Connected' : 'Disconnected'}
+                                </span>
+                            </div>
+                            <div class="connection-info">
+                                ${conn.type.toUpperCase()} - ${conn.host}/${conn.database}
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">⚠️</div>
+                            <div class="empty-state-text">No connections configured</div>
+                            <p style="font-size: 12px; color: #999; margin-top: 10px;">
+                                Edit db_config.json to add connections
+                            </p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading connections:', error);
+                showAlert('Error loading connections: ' + error.message, 'error');
+            }
+        }
+
+        // Select a connection
+        async function selectConnection(connectionName) {
+            try {
+                // Connect to database
+                showAlert('Connecting to ' + connectionName + '...', 'info');
+
+                const response = await fetch('/api/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ connection_name: connectionName })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    currentConnection = connectionName;
+
+                    // Update UI
+                    document.querySelectorAll('.connection-item').forEach(el => {
+                        el.classList.remove('active');
+                    });
+                    event.target.closest('.connection-item').classList.add('active');
+
+                    showAlert('Connected to ' + connectionName, 'success');
+
+                    // Load tables
+                    loadTables(connectionName);
+                } else {
+                    showAlert('Connection failed: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error connecting:', error);
+                showAlert('Error connecting: ' + error.message, 'error');
+            }
+        }
+
+        // Load tables for a connection
+        async function loadTables(connectionName) {
+            try {
+                const container = document.getElementById('tablesList');
+                container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading tables...</div>';
+
+                const response = await fetch(`/api/tables?connection=${encodeURIComponent(connectionName)}`);
+                const data = await response.json();
+
+                if (data.success && data.tables.length > 0) {
+                    container.innerHTML = '<div class="table-list">' + data.tables.map(table => `
+                        <div class="table-item" onclick="selectTable('${table.name}')">
+                            <div class="table-name">${table.name}</div>
+                            <div class="table-meta">
+                                ${table.row_count.toLocaleString()} rows • ${table.column_count} columns
+                            </div>
+                        </div>
+                    `).join('') + '</div>';
+                } else {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📋</div>
+                            <div class="empty-state-text">No tables found</div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading tables:', error);
+                showAlert('Error loading tables: ' + error.message, 'error');
+            }
+        }
+
+        // Select a table
+        function selectTable(tableName) {
+            currentTable = tableName;
+            currentPage = 1;
+
+            // Update UI
+            document.querySelectorAll('.table-item').forEach(el => {
+                el.classList.remove('active');
+            });
+            event.target.closest('.table-item').classList.add('active');
+
+            // Load table data and schema
+            loadTableData();
+            loadTableSchema();
+
+            showAlert('Selected table: ' + tableName, 'success');
+        }
+
+        // Load table data
+        async function loadTableData() {
+            if (!currentConnection || !currentTable) return;
+
+            try {
+                const container = document.getElementById('dataContent');
+                container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading data...</div>';
+
+                const params = new URLSearchParams({
+                    connection: currentConnection,
+                    table: currentTable,
+                    page: currentPage,
+                    per_page: perPage
+                });
+
+                if (orderBy) {
+                    params.append('order_by', orderBy);
+                    params.append('order_dir', orderDir);
+                }
+
+                const response = await fetch(`/api/table/data?${params}`);
+                const result = await response.json();
+
+                if (result.success && result.data) {
+                    const data = result.data;
+
+                    // Stats
+                    let html = `
+                        <div class="stats-row">
+                            <div class="stat-box">
+                                <div class="stat-value">${data.total_rows.toLocaleString()}</div>
+                                <div class="stat-label">Total Rows</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-value">${data.columns.length}</div>
+                                <div class="stat-label">Columns</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-value">${data.page} / ${data.total_pages}</div>
+                                <div class="stat-label">Page</div>
+                            </div>
+                        </div>
+                    `;
+
+                    // Export button
+                    html += `
+                        <div style="margin-bottom: 15px;">
+                            <button class="btn btn-success" onclick="exportTableCSV()">Export to CSV</button>
+                        </div>
+                    `;
+
+                    // Table
+                    if (data.data.length > 0) {
+                        html += '<div class="data-table-container"><table class="data-table">';
+
+                        // Headers
+                        html += '<thead><tr>';
+                        data.columns.forEach(col => {
+                            html += `<th onclick="sortBy('${col}')">${col} ↕️</th>`;
+                        });
+                        html += '</tr></thead>';
+
+                        // Body
+                        html += '<tbody>';
+                        data.data.forEach(row => {
+                            html += '<tr>';
+                            data.columns.forEach(col => {
+                                let value = row[col];
+                                if (value === null || value === undefined) {
+                                    value = '<span style="color: #999;">NULL</span>';
+                                }
+                                html += `<td>${value}</td>`;
+                            });
+                            html += '</tr>';
+                        });
+                        html += '</tbody></table></div>';
+
+                        // Pagination
+                        html += `
+                            <div class="pagination">
+                                <button ${data.page <= 1 ? 'disabled' : ''} onclick="changePage(1)">First</button>
+                                <button ${data.page <= 1 ? 'disabled' : ''} onclick="changePage(${data.page - 1})">Previous</button>
+                                <span class="page-info">Page ${data.page} of ${data.total_pages}</span>
+                                <button ${data.page >= data.total_pages ? 'disabled' : ''} onclick="changePage(${data.page + 1})">Next</button>
+                                <button ${data.page >= data.total_pages ? 'disabled' : ''} onclick="changePage(${data.total_pages})">Last</button>
+                            </div>
+                        `;
+                    } else {
+                        html += '<div class="empty-state"><div class="empty-state-text">No data found</div></div>';
+                    }
+
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = `
+                        <div class="alert alert-error">
+                            Error loading data: ${result.message}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading table data:', error);
+                showAlert('Error loading table data: ' + error.message, 'error');
+            }
+        }
+
+        // Load table schema
+        async function loadTableSchema() {
+            if (!currentConnection || !currentTable) return;
+
+            try {
+                const container = document.getElementById('schemaContent');
+                container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading schema...</div>';
+
+                const response = await fetch(
+                    `/api/table/schema?connection=${encodeURIComponent(currentConnection)}&table=${encodeURIComponent(currentTable)}`
+                );
+                const result = await response.json();
+
+                if (result.success && result.schema) {
+                    let html = '<table class="schema-table">';
+                    html += `
+                        <thead>
+                            <tr>
+                                <th>Column</th>
+                                <th>Type</th>
+                                <th>Nullable</th>
+                                <th>Default</th>
+                                <th>Constraints</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                    `;
+
+                    result.schema.forEach(col => {
+                        html += '<tr>';
+                        html += `<td><strong>${col.name}</strong></td>`;
+                        html += `<td>${col.type}</td>`;
+                        html += `<td>${col.nullable ? 'Yes' : 'No'}</td>`;
+                        html += `<td>${col.default || '-'}</td>`;
+                        html += '<td>';
+                        if (col.primary_key) {
+                            html += '<span class="badge badge-primary">PRIMARY KEY</span> ';
+                        }
+                        if (col.indexed) {
+                            html += '<span class="badge badge-success">INDEXED</span>';
+                        }
+                        html += '</td>';
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = `
+                        <div class="alert alert-error">
+                            Error loading schema: ${result.message}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading schema:', error);
+                showAlert('Error loading schema: ' + error.message, 'error');
+            }
+        }
+
+        // Execute custom query
+        async function executeQuery() {
+            if (!currentConnection) {
+                showAlert('Please select a connection first', 'error');
+                return;
+            }
+
+            const query = document.getElementById('queryEditor').value.trim();
+            if (!query) {
+                showAlert('Please enter a query', 'error');
+                return;
+            }
+
+            try {
+                const container = document.getElementById('queryResults');
+                container.innerHTML = '<div class="loading"><div class="spinner"></div>Executing query...</div>';
+
+                const response = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        connection: currentConnection,
+                        query: query
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success && result.data) {
+                    const data = result.data;
+                    let html = `
+                        <div class="alert alert-success">
+                            Query executed successfully. Returned ${data.row_count} rows.
+                        </div>
+                    `;
+
+                    if (data.data.length > 0) {
+                        html += '<div class="data-table-container"><table class="data-table">';
+
+                        // Headers
+                        html += '<thead><tr>';
+                        data.columns.forEach(col => {
+                            html += `<th>${col}</th>`;
+                        });
+                        html += '</tr></thead>';
+
+                        // Body
+                        html += '<tbody>';
+                        data.data.forEach(row => {
+                            html += '<tr>';
+                            data.columns.forEach(col => {
+                                let value = row[col];
+                                if (value === null || value === undefined) {
+                                    value = '<span style="color: #999;">NULL</span>';
+                                }
+                                html += `<td>${value}</td>`;
+                            });
+                            html += '</tr>';
+                        });
+                        html += '</tbody></table></div>';
+                    }
+
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = `
+                        <div class="alert alert-error">
+                            Query error: ${result.message}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error executing query:', error);
+                document.getElementById('queryResults').innerHTML = `
+                    <div class="alert alert-error">
+                        Error executing query: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        // Clear query editor
+        function clearQuery() {
+            document.getElementById('queryEditor').value = '';
+            document.getElementById('queryResults').innerHTML = '';
+        }
+
+        // Export table to CSV
+        function exportTableCSV() {
+            if (!currentConnection || !currentTable) return;
+
+            const url = `/api/export/csv?connection=${encodeURIComponent(currentConnection)}&table=${encodeURIComponent(currentTable)}`;
+            window.open(url, '_blank');
+            showAlert('Downloading CSV export...', 'success');
+        }
+
+        // Change page
+        function changePage(page) {
+            currentPage = page;
+            loadTableData();
+        }
+
+        // Sort by column
+        function sortBy(column) {
+            if (orderBy === column) {
+                orderDir = orderDir === 'ASC' ? 'DESC' : 'ASC';
+            } else {
+                orderBy = column;
+                orderDir = 'ASC';
+            }
+            currentPage = 1;
+            loadTableData();
+        }
+
+        // Switch tabs
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(tabName + 'Tab').classList.add('active');
+        }
+
+        // Show alert
+        function showAlert(message, type) {
+            const container = document.getElementById('alertContainer');
+            const alertClass = type === 'success' ? 'alert-success' :
+                              type === 'error' ? 'alert-error' : 'alert-info';
+
+            container.innerHTML = `
+                <div class="alert ${alertClass}">
+                    ${message}
+                </div>
+            `;
+
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

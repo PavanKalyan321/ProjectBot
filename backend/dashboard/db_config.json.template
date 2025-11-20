@@ -1,0 +1,32 @@
+{
+  "connections": [
+    {
+      "name": "Example PostgreSQL",
+      "type": "postgresql",
+      "host": "your-droplet-ip",
+      "port": 5432,
+      "database": "your_database",
+      "username": "your_username",
+      "password": "your_password",
+      "ssh_tunnel": false,
+      "ssh_host": "",
+      "ssh_port": 22,
+      "ssh_user": "",
+      "ssh_key_path": ""
+    },
+    {
+      "name": "Example MySQL",
+      "type": "mysql",
+      "host": "your-droplet-ip",
+      "port": 3306,
+      "database": "your_database",
+      "username": "your_username",
+      "password": "your_password",
+      "ssh_tunnel": false,
+      "ssh_host": "",
+      "ssh_port": 22,
+      "ssh_user": "",
+      "ssh_key_path": ""
+    }
+  ]
+}
