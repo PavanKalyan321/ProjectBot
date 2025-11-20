@@ -44,6 +44,7 @@ def log_crash_round(
     ocr_confidence: Optional[float] = None,
     error_type: Optional[str] = None,
     error_description: Optional[str] = None,
+    strategy_name: str = "custom",
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Optional[int]:
     """
@@ -86,6 +87,7 @@ def log_crash_round(
                 round_start_timestamp=datetime.utcnow(),
                 round_end_timestamp=datetime.utcnow(),
                 stake_value=stake_value,
+                strategy_name=strategy_name,
                 crash_multiplier_detected=crash_multiplier,
                 cashout_multiplier=cashout_multiplier,
                 final_multiplier=final_multiplier,
