@@ -1,0 +1,239 @@
+================================================================================
+HOW TO CHECK IF TABLES ARE CREATED IN SUPABASE
+================================================================================
+
+Since direct Python connections timeout (network/firewall blocked), you need to
+check tables manually using Supabase's web interface.
+
+================================================================================
+STEP 1: Check Tables in Supabase Dashboard
+================================================================================
+
+1. Open: https://app.supabase.com
+2. Click on your project: zofojiubrykbtmstfhzx
+3. Click "Table Editor" in left sidebar (or refresh if already open)
+4. You should see list of tables:
+
+   EXPECTED TABLES (9 total):
+   ├─ analytics_round_multipliers
+   ├─ analytics_round_outcomes
+   ├─ analytics_round_signals
+   ├─ bot_vm_registration
+   ├─ crash_game_rounds (MAIN TABLE - 51 fields)
+   ├─ error_logs
+   ├─ game_platform_config
+   ├─ ocr_validation_logs
+   └─ session_logs
+
+   If you see all 9 tables: ✅ SCHEMA IS CREATED!
+   If you don't see these: Follow Step 2 below
+
+================================================================================
+STEP 2: Create Schema If Tables Don't Exist
+================================================================================
+
+1. Open: https://app.supabase.com
+2. Click project: zofojiubrykbtmstfhzx
+3. Go to: SQL Editor (left sidebar)
+4. Click: New Query (top right)
+5. Open file: c:\Project\backend\database\schema.sql
+6. Copy ALL contents (Ctrl+A, Ctrl+C)
+7. Paste into Supabase SQL Editor (Ctrl+V)
+8. Click: RUN (top right of editor)
+
+Expected Results:
+  ✓ No errors
+  ✓ 9 tables appear in Table Editor
+  ✓ Schema shows success message
+
+If you see "table already exists" errors:
+  → This is GOOD! Tables are already created
+  → Just close the query and refresh
+  → Tables will appear in Table Editor
+
+================================================================================
+STEP 3: Verify Each Table
+================================================================================
+
+Click on each table to verify:
+
+1. bot_vm_registration (12 columns)
+   - bot_id, bot_name, vm_name, vm_provider, region, session_id, strategy_name
+   - initial_balance, base_stake, max_stake, created_at, updated_at
+
+2. game_platform_config (9 columns)
+   - id, game_name, platform_code, platform_url, currency
+   - house_edge_percent, min_multiplier, max_multiplier, created_at
+
+3. crash_game_rounds (51 columns!) - MAIN TABLE
+   - Sections: Bot ID, Game Details, Timing, Stake/Strategy, Multipliers
+   - Financials, OCR/Detection, Outcome/Errors, Metadata
+
+4. analytics_round_multipliers (11 columns)
+   - round_id, round_external_id, multiplier, timestamp
+   - bot_id, game_name, platform_code, is_crash_multiplier, etc.
+
+5. analytics_round_signals (18 columns)
+   - round_id, round_number, timestamp, bot_id, game_name
+   - signal_type, confidence_score, pattern_match_type, etc.
+
+6. analytics_round_outcomes (22 columns)
+   - round_id, round_number, timestamp, bot_id, game_name
+   - outcome, profit_loss, roi_percent, win_streak_length, etc.
+
+7. session_logs (12 columns)
+   - bot_id, session_id, game_name, start_time, end_time
+   - initial_balance, final_balance, total_profit_loss, etc.
+
+8. error_logs (7 columns)
+   - round_id, bot_id, session_id, error_type, error_message
+   - error_trace, recovery_action, timestamp
+
+9. ocr_validation_logs (6 columns)
+   - round_id, bot_id, raw_ocr_text, cleaned_value
+   - confidence, validation_status, timestamp
+
+If all tables are present with correct columns: ✅ SCHEMA IS COMPLETE!
+
+================================================================================
+STEP 4: Check Data (Optional)
+================================================================================
+
+Once tables are created, you can click on each table to see:
+  - Columns and their types
+  - Data (if any exists)
+  - Indexes and constraints
+
+To add test data:
+  1. Click on a table
+  2. Click "Insert Row" (top right)
+  3. Fill in the fields
+  4. Click "Save"
+
+This confirms tables are working!
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Problem: Tables don't appear after running schema.sql
+
+Solution 1: Refresh the page
+  - Press F5 to refresh Supabase dashboard
+  - Scroll down in Table Editor to see all tables
+
+Solution 2: Check for errors
+  - Look at the SQL Editor output
+  - If you see error messages, copy them
+  - Common errors:
+    * "table already exists" → Schema already created, just refresh
+    * "syntax error" → Schema file has issues
+    * "permission denied" → Database user permissions issue
+
+Solution 3: Run schema again
+  - Open SQL Editor
+  - New Query
+  - Copy backend/database/schema.sql again
+  - Click RUN
+  - Look for success message
+
+Problem: SQL Editor shows error "Cannot import 'setuptools.build_meta'"
+
+Solution: This is a Python error, not Supabase
+  - Ignore it if you see it in Python scripts
+  - Supabase SQL Editor doesn't use Python
+  - Just focus on SQL commands in Supabase
+
+Problem: Connection timeout from Python script
+
+Solution: This is expected!
+  - Network/firewall blocks port 5432
+  - Use Supabase SQL Editor instead (what we're doing)
+  - This is the recommended approach
+
+================================================================================
+WHAT TO DO NEXT
+================================================================================
+
+After verifying tables exist:
+
+1. ✅ Tables created and visible in Supabase
+2. ✅ Virtual environment activated (venv\Scripts\activate.bat)
+3. ✅ Run your bot: python backend/bot.py --mode dry_run
+4. ✅ Data automatically logs to Supabase tables
+
+Your bot will use the database automatically!
+
+================================================================================
+VERIFICATION CHECKLIST
+================================================================================
+
+Use this checklist to confirm everything is set up:
+
+Schema Creation:
+  [ ] Opened Supabase dashboard
+  [ ] Went to SQL Editor
+  [ ] Copied backend/database/schema.sql
+  [ ] Pasted into Supabase SQL Editor
+  [ ] Clicked RUN
+  [ ] No error messages (or "table already exists" is fine)
+
+Table Verification:
+  [ ] Refreshed Supabase page (F5)
+  [ ] See "Table Editor" in left sidebar
+  [ ] Can see 9 tables listed:
+      [ ] analytics_round_multipliers
+      [ ] analytics_round_outcomes
+      [ ] analytics_round_signals
+      [ ] bot_vm_registration
+      [ ] crash_game_rounds
+      [ ] error_logs
+      [ ] game_platform_config
+      [ ] ocr_validation_logs
+      [ ] session_logs
+
+Columns Verification (click each table):
+  [ ] bot_vm_registration has ~12 columns
+  [ ] crash_game_rounds has ~51 columns
+  [ ] Other tables have expected columns
+
+Data Test (optional but recommended):
+  [ ] Click on bot_vm_registration
+  [ ] Click "Insert Row"
+  [ ] Fill in one row
+  [ ] Click "Save"
+  [ ] Row appears in table - confirms it works!
+
+Connection Ready:
+  [ ] Virtual environment activated
+  [ ] .env file has credentials
+  [ ] requirements.txt has psycopg2-binary
+  [ ] Ready to run bot
+
+If all checked: ✅ YOUR SETUP IS COMPLETE!
+
+================================================================================
+FINAL STATUS
+================================================================================
+
+To confirm your Supabase setup is working:
+
+1. Check Supabase Dashboard:
+   → Tables visible in Table Editor
+
+2. Check Python side:
+   → Run: python verify_supabase_setup.py
+   → Should show: ✅ ALL CHECKS PASSED
+
+3. Run your bot:
+   → python backend/bot.py --mode dry_run
+   → Bot runs without database errors
+   → Ready to log data!
+
+================================================================================
+
+Once tables are confirmed, you're 100% ready to use Supabase!
+
+Next: Run your bot and watch data log to Supabase in real-time!
+
+================================================================================

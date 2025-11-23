@@ -1,0 +1,30 @@
+{
+  "name": "aviator-dashboard-nextjs",
+  "version": "1.0.0",
+  "description": "Next.js dashboard for Aviator Bot with 2-iframe layout",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "next": "^14.1.0",
+    "socket.io-client": "^4.7.2",
+    "recharts": "^2.10.6",
+    "lucide-react": "^0.365.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@types/node": "^20.10.6",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.4.1",
+    "eslint": "^8.56.0",
+    "eslint-config-next": "^14.1.0"
+  }
+}

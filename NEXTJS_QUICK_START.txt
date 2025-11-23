@@ -1,0 +1,331 @@
+================================================================================
+                    NEXT.JS DASHBOARD - QUICK START
+                          (3 Easy Steps)
+================================================================================
+
+Your Next.js dashboard with 2-iframe layout is ready!
+
+Location: c:\Project\dashboard-nextjs\
+
+================================================================================
+STEP 1: INSTALL DEPENDENCIES (2 minutes)
+================================================================================
+
+Open Command Prompt:
+  cd c:\Project\dashboard-nextjs
+  npm install
+
+Expected output:
+  added 500+ packages
+
+(This downloads all required JavaScript libraries)
+
+================================================================================
+STEP 2: START FLASK BACKEND (Terminal 1)
+================================================================================
+
+Keep your existing Flask backend running:
+
+  cd c:\Project
+  python run_dashboard.py --port 5001
+
+Expected output:
+  * Running on http://localhost:5001
+  * Debugger PIN: ...
+
+LEAVE THIS TERMINAL OPEN
+
+================================================================================
+STEP 3: START NEXT.JS FRONTEND (Terminal 2)
+================================================================================
+
+Open a NEW Command Prompt window:
+
+  cd c:\Project\dashboard-nextjs
+  npm run dev
+
+Expected output:
+  ▲ Next.js 14.0.0
+  - Local:        http://localhost:3000
+  - Network:      http://192.168.x.x:3000
+
+LEAVE THIS TERMINAL OPEN
+
+================================================================================
+STEP 4: OPEN DASHBOARD
+================================================================================
+
+Open your browser and go to:
+
+  http://localhost:3000
+
+You should see:
+  ✓ Split-screen dashboard
+  ✓ Left panel: Bot controller
+  ✓ Right panel: Analytics
+  ✓ Green "Connected" indicator (top right)
+  ✓ Real-time data updates
+
+================================================================================
+PROJECT STRUCTURE
+================================================================================
+
+dashboard-nextjs/
+├── src/
+│   ├── app/
+│   │   ├── page.tsx         ← Main page
+│   │   └── layout.tsx
+│   ├── components/
+│   │   ├── Dashboard.tsx    ← Main layout
+│   │   ├── LeftIframe.tsx   ← Bot controller
+│   │   └── RightIframe.tsx  ← Analytics
+│   ├── lib/
+│   │   ├── api.ts           ← REST API calls
+│   │   └── socket.ts        ← WebSocket setup
+│   └── styles/
+│       └── globals.css
+├── package.json
+├── next.config.ts
+├── tailwind.config.ts
+└── .env.local               ← Configuration
+
+================================================================================
+WHAT'S INCLUDED
+================================================================================
+
+LEFT IFRAME (Bot Controller):
+  ✓ Game multiplier display
+  ✓ Stake input field
+  ✓ Target multiplier input
+  ✓ Place Bet button
+  ✓ Cancel Bet button
+  ✓ Pause/Resume toggle
+  ✓ Status indicator
+
+RIGHT IFRAME (Analytics):
+  ✓ Actual multiplier
+  ✓ Ensemble prediction + confidence
+  ✓ Trend indicator (↑↓→)
+  ✓ Trading signal (BET/SKIP/CAUTIOUS)
+  ✓ Win rate percentage
+  ✓ Profit/Loss amount
+  ✓ Total rounds
+  ✓ Top 3 models ranking
+  ✓ Last 10 rounds chart
+
+FEATURES:
+  ✓ Real-time updates via WebSocket
+  ✓ Auto-refresh every 5 seconds
+  ✓ Connection status indicator
+  ✓ Dark theme for eye comfort
+  ✓ Responsive layout
+  ✓ All 16 ML models tracked
+
+================================================================================
+CONFIGURATION
+================================================================================
+
+The .env.local file has:
+
+  NEXT_PUBLIC_API_URL=http://localhost:5001
+  NEXT_PUBLIC_SOCKET_URL=http://localhost:5001
+
+These point to your Flask backend on port 5001.
+
+TO CHANGE PORT:
+  1. Edit .env.local
+  2. Update URLs to your new Flask port
+  3. Restart Next.js: Ctrl+C, then npm run dev
+
+================================================================================
+COMMANDS
+================================================================================
+
+Development:
+  npm run dev              ← Start development server (auto-reload)
+
+Production Build:
+  npm run build            ← Build for production
+  npm start                ← Run production server
+
+Linting:
+  npm run lint             ← Check code quality
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Q: Dashboard shows "Loading..."
+A: Make sure Flask is running on port 5001
+   Check: python run_dashboard.py --port 5001
+
+Q: "Disconnected" indicator (red)
+A: WebSocket connection failed
+   Check Flask is running and accessible
+   Check .env.local has correct URLs
+
+Q: No models showing
+A: Need data from Flask backend
+   Wait for at least one round to complete
+   Check Flask console for errors
+
+Q: Port 3000 already in use
+A: Kill existing process or use different port
+   npm run dev -- -p 3001
+
+Q: "Cannot find module" errors
+A: Run npm install again
+   cd c:\Project\dashboard-nextjs
+   npm install
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. ✅ Install dependencies
+2. ✅ Start Flask backend
+3. ✅ Start Next.js frontend
+4. ✅ Open http://localhost:3000
+5. (Optional) Deploy to production
+
+To Deploy:
+  - Build: npm run build
+  - Deploy to Vercel, Netlify, or your server
+  - Update .env with production URLs
+
+================================================================================
+API ENDPOINTS USED
+================================================================================
+
+Flask Backend (http://localhost:5001):
+
+  GET  /api/current_round       ← Current predictions
+  GET  /api/live_stats          ← Win rate, P/L
+  GET  /api/model_comparison    ← All 16 models
+  GET  /api/recent_rounds       ← Last 20 rounds
+  GET  /api/trend_signal        ← Trend analysis
+  GET  /api/rules_status        ← Game rules
+  POST /api/cleanup             ← Data cleanup
+
+WebSocket Events:
+  live_update  ← New round data
+  stats_update ← Statistics update
+  request_update ← Request latest data
+
+================================================================================
+DASHBOARD LAYOUT
+================================================================================
+
+Top Header:
+  - Title: "Aviator Bot Dashboard"
+  - Connection indicator (✓ Connected / ✗ Disconnected)
+  - Last updated time
+
+Main Content (2-column split):
+  LEFT 50%                       RIGHT 50%
+  ┌──────────────────────────┐  ┌──────────────────────────┐
+  │ BOT CONTROLLER           │  │ ANALYTICS & PREDICTIONS  │
+  │                          │  │                          │
+  │ Multiplier: 2.45x        │  │ Actual: 2.45x            │
+  │ Status: RUNNING          │  │ Predicted: 2.38x (82%)   │
+  │                          │  │                          │
+  │ Stake: [ 25 ]            │  │ Models Grid:             │
+  │ Target: [ 2.0 ]          │  │ [M1] [M2] [M3] [M4]      │
+  │                          │  │ [M5] [M6] [M7] [M8]      │
+  │ [Place Bet]              │  │                          │
+  │ [Pause/Resume]           │  │ Trend: ↑ UP              │
+  │                          │  │ Signal: BET              │
+  │                          │  │                          │
+  │                          │  │ Stats:                   │
+  │                          │  │ Win Rate: 67.5%          │
+  │                          │  │ P/L: +$245.80            │
+  │                          │  │                          │
+  └──────────────────────────┘  └──────────────────────────┘
+
+================================================================================
+IMPORTANT NOTES
+================================================================================
+
+1. Keep Flask running
+   - One terminal for Flask backend
+   - One terminal for Next.js frontend
+   - Both must run simultaneously
+
+2. Port Numbers
+   - Flask: http://localhost:5001
+   - Next.js: http://localhost:3000
+   - Don't change unless necessary
+
+3. Environment Variables
+   - .env.local = Development
+   - Set environment variables in production
+
+4. Firewall
+   - Windows may ask for firewall access
+   - Allow both Flask and Node.js
+
+5. Data Files
+   - Flask reads CSV files from backend folder
+   - Ensure CSV files exist for bot data
+
+6. Database
+   - Supabase integration also available
+   - Can use CSV or PostgreSQL
+
+================================================================================
+FILES TO KNOW
+================================================================================
+
+Important Files:
+
+  src/components/Dashboard.tsx    ← Main layout
+  src/components/LeftIframe.tsx   ← Bot controller
+  src/components/RightIframe.tsx  ← Analytics
+  src/lib/api.ts                  ← REST API calls
+  src/lib/socket.ts               ← WebSocket setup
+  .env.local                       ← Configuration
+  package.json                     ← Dependencies
+
+Keep These Running:
+
+  Terminal 1: python run_dashboard.py
+  Terminal 2: npm run dev
+
+================================================================================
+SUPPORT
+================================================================================
+
+Documentation:
+  - NEXTJS_DASHBOARD_SETUP.md (detailed guide)
+  - dashboard-nextjs/README.md (project docs)
+  - NEXTJS_QUICK_START.txt (this file)
+
+Check Browser Console:
+  - F12 to open developer tools
+  - Console tab for errors
+  - Network tab for API calls
+
+Check Flask Logs:
+  - Terminal running Flask
+  - Shows all API calls
+  - Shows WebSocket events
+
+Check .env.local:
+  - Verify API_URL and SOCKET_URL
+  - Should both point to Flask
+
+================================================================================
+YOU'RE READY!
+================================================================================
+
+Your Next.js dashboard is set up and ready to monitor your Aviator Bot!
+
+Next Action: Follow the 3 steps above to get started
+
+Questions? See:
+  - NEXTJS_DASHBOARD_SETUP.md for detailed guide
+  - dashboard-nextjs/README.md for API documentation
+
+Happy monitoring! 🚀
+
+================================================================================
