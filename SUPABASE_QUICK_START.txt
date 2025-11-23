@@ -1,0 +1,155 @@
+================================================================================
+SUPABASE INTEGRATION - QUICK START
+================================================================================
+
+Your Aviator Bot is now ready for Supabase! Here's what to do next:
+
+STEP 1: Create Schema in Supabase
+================================================================================
+
+1. Open: https://app.supabase.com
+2. Click your project: zofojiubrykbtmstfhzx
+3. Go to: SQL Editor → New Query
+4. Open and copy: backend/database/schema.sql
+5. Paste into Supabase SQL Editor
+6. Click: RUN
+
+Expected: "9 tables created successfully"
+
+STEP 2: Install Dependencies
+================================================================================
+
+python -m pip install -r requirements.txt
+
+This installs python-dotenv, sqlalchemy, psycopg2-binary needed for Supabase
+
+STEP 3: Test Connection (Optional)
+================================================================================
+
+python migrate_to_supabase.py
+
+This will verify the schema was created and test the connection.
+
+STEP 4: Start Using Supabase
+================================================================================
+
+Now your bot and dashboard automatically use Supabase!
+
+Option A - Run the Bot:
+  python backend/bot.py --mode dry_run
+
+Option B - Run the Dashboard:
+  python run_dashboard.py
+
+Both will log data to Supabase automatically.
+
+FILES CREATED/UPDATED
+================================================================================
+
+Created:
+  ✓ .env - Supabase credentials (KEEP SECRET!)
+  ✓ migrate_to_supabase.py - Connection test script
+  ✓ SUPABASE_SETUP_GUIDE.md - Complete setup guide
+  ✓ SUPABASE_QUICK_START.txt - This file
+
+Updated:
+  ✓ backend/database/config.py - Now loads from .env
+  ✓ requirements.txt - Added dependencies
+  ✓ .gitignore - Added .env to protect credentials
+
+SUPABASE CREDENTIALS
+================================================================================
+
+Project URL: https://zofojiubrykbtmstfhzx.supabase.co
+Database: postgres
+User: postgres
+Host: zofojiubrykbtmstfhzx.supabase.co
+Port: 5432
+Password: [in .env file]
+
+API Key: [in .env file]
+
+(All sensitive credentials are in .env which is gitignored)
+
+DATABASE SCHEMA
+================================================================================
+
+9 Tables Created:
+
+Main Tables (3):
+  - bot_vm_registration (Bot/VM config)
+  - game_platform_config (Game metadata)
+  - crash_game_rounds (Main round history - 51 fields)
+
+Analytics Tables (3):
+  - analytics_round_multipliers (ML training data)
+  - analytics_round_signals (Signal generation & ML features)
+  - analytics_round_outcomes (Statistics & reporting)
+
+Supporting Tables (3):
+  - session_logs (Session tracking)
+  - error_logs (Error debugging)
+  - ocr_validation_logs (OCR quality tracking)
+
+Special Features:
+  - Indexes for fast queries
+  - Triggers for automatic timestamps
+  - Materialized views for daily stats
+  - Stored procedures for common operations
+  - JSONB fields for flexible metadata
+  - Enum types for data integrity
+
+NEXT STEPS
+================================================================================
+
+1. Run the SQL schema in Supabase (see STEP 1 above)
+2. Install dependencies (see STEP 2 above)
+3. Test connection (see STEP 3 above) - OPTIONAL
+4. Start using your bot with Supabase!
+
+TROUBLESHOOTING
+================================================================================
+
+Connection Timeout?
+  → Use Supabase SQL Editor to create schema (recommended)
+  → Some networks block port 5432
+  → Try from different network if needed
+
+Connection Refused?
+  → Check .env file has correct credentials
+  → Wait 30 seconds after creating Supabase project
+
+Table Already Exists?
+  → Safe to ignore, tables are already there
+  → Script handles this gracefully
+
+DOCUMENTATION
+================================================================================
+
+Full setup guide: SUPABASE_SETUP_GUIDE.md
+Quick start: This file
+Schema reference: backend/database/schema.sql
+Connection code: backend/database/config.py
+Database models: backend/database/models.py
+Logger functions: backend/database/logger.py
+
+Supabase docs: https://supabase.com/docs
+PostgreSQL docs: https://www.postgresql.org/docs/
+
+================================================================================
+YOU'RE ALL SET! 🚀
+================================================================================
+
+Your Aviator Bot is now using Supabase for:
+  ✓ Round history logging
+  ✓ Analytics data
+  ✓ ML training data
+  ✓ Error tracking
+  ✓ Session management
+  ✓ OCR validation logs
+
+All data is secure, backed up, and cloud-hosted!
+
+Questions? Check SUPABASE_SETUP_GUIDE.md for detailed explanations.
+
+================================================================================

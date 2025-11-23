@@ -1,20 +1,24 @@
 """
-Database Configuration for DigitalOcean PostgreSQL
+Database Configuration for Supabase PostgreSQL
 Crash Game Analytics & Logging System
 """
 
 import os
 from typing import Optional
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ============================================================================
-# DATABASE CREDENTIALS (From DigitalOcean)
+# DATABASE CREDENTIALS (From Supabase)
 # ============================================================================
 
-DB_HOST = os.getenv("DB_HOST", "db-main-do-user-28557476-0.h.db.ondigitalocean.com")
-DB_PORT = int(os.getenv("DB_PORT", "25060"))
-DB_NAME = os.getenv("DB_NAME", "defaultdb")
-DB_USER = os.getenv("DB_USER", "pk")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "your_password_here")  # Set via environment variable
+DB_HOST = os.getenv("DB_HOST", "zofojiubrykbtmstfhzx.supabase.co")
+DB_PORT = int(os.getenv("DB_PORT", "5432"))
+DB_NAME = os.getenv("DB_NAME", "postgres")
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")  # Set via environment variable (.env file)
 DB_SSL_MODE = os.getenv("DB_SSL_MODE", "require")
 
 # ============================================================================

@@ -30,6 +30,7 @@ bot_session_*.log
 
 # Config with credentials
 cloud_sync_config.json
+.env
 
 # CSV data files (if they contain sensitive data)
 *.csv

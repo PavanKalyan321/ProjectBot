@@ -1,0 +1,18 @@
+# Minimal requirements for Supabase setup
+# Use this first, then gradually add other packages if needed
+
+# Web Framework
+flask==2.3.3
+flask-socketio==5.3.6
+
+# Data Processing (basic)
+python-dotenv==1.0.0
+requests==2.31.0
+
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+
+# For bot core functionality (pre-built wheels available)
+pillow==10.0.1
+pyperclip==1.8.2
