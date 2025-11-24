@@ -1,0 +1,415 @@
+================================================================================
+              CAPTURE SCREEN COORDINATES GUIDE
+        Find Exact Position of Aviator Game Multiplier Display
+================================================================================
+
+CRITICAL STEP: Before running the logger, you MUST capture the exact
+screen coordinates of where your game displays the multiplier!
+
+Status: Ready to capture coordinates
+Time needed: 5 minutes
+Importance: CRITICAL - Logger won't work without correct coordinates
+
+================================================================================
+                        WHY COORDINATES MATTER
+================================================================================
+
+The OCR engine (Tesseract) needs to read text from a specific area of your
+screen. If coordinates are wrong:
+  ✗ OCR reads wrong area (empty space, game buttons, etc.)
+  ✗ Multiplier not detected
+  ✗ Logger fails to read values
+  ✗ No data logged to database
+
+Correct coordinates = Logger works perfectly! ✓
+
+================================================================================
+                    QUICK START (3 STEPS)
+================================================================================
+
+1. OPEN YOUR AVIATOR GAME
+   Make sure the game is open on screen and showing the multiplier
+
+2. RUN THE CAPTURE TOOL
+   python capture_coordinates.py
+
+3. CHOOSE YOUR METHOD
+   1 = Interactive (click & drag) ← RECOMMENDED
+   2 = Manual input (type numbers)
+   3 = Use defaults (may not work)
+
+Done! Coordinates saved and ready to use.
+
+================================================================================
+                  METHOD 1: INTERACTIVE SELECTION (Easiest)
+================================================================================
+
+Best for: Most users
+Difficulty: Easy
+Time: 2 minutes
+
+STEP 1: Run the tool
+  python capture_coordinates.py
+
+STEP 2: Choose Option 1
+  Enter your choice (1, 2, or 3): 1
+
+STEP 3: Select the multiplier area
+  - A window opens showing your full screen
+  - Move mouse to TOP-LEFT corner of the multiplier display
+  - Click and HOLD the mouse button
+  - Drag to BOTTOM-RIGHT corner of the multiplier
+  - Release the mouse button
+  - A box appears showing your selection
+
+STEP 4: Preview the captured region
+  - Another window opens showing just the multiplier area
+  - Verify it looks correct (should clearly show the multiplier)
+  - If wrong, close window and try again
+  - If correct, close window to save
+
+STEP 5: Coordinates saved!
+  - File created: coordinates.txt
+  - Screenshot saved: captured_region_TIMESTAMP.png
+  - Ready to use in logger
+
+Example of correct selection:
+  [Window shows just the multiplier area with numbers like "1.23x", "2.34x"]
+
+Example of incorrect selection:
+  [Window shows game buttons, empty space, or game UI - not multiplier]
+
+If incorrect, run the tool again and select more carefully.
+
+================================================================================
+                  METHOD 2: MANUAL COORDINATE INPUT
+================================================================================
+
+Best for: If interactive selection doesn't work
+Difficulty: Medium
+Time: 3 minutes
+
+STEP 1: Run the tool
+  python capture_coordinates.py
+
+STEP 2: Choose Option 2
+  Enter your choice (1, 2, or 3): 2
+
+STEP 3: Find coordinates manually
+  You need to identify:
+    - TOP (Y position): Distance from top of screen to top of multiplier
+    - LEFT (X position): Distance from left of screen to left of multiplier
+    - WIDTH: How wide the multiplier display is
+    - HEIGHT: How tall the multiplier display is
+
+STEP 4: Measure the area
+  Use one of these methods:
+
+  Method A: Windows Print Screen
+    - Open Paint (Start → Paint)
+    - Press Print Screen
+    - Paste into Paint (Ctrl+V)
+    - Hover over multiplier, note coordinates at bottom
+    - Get TOP, LEFT, WIDTH, HEIGHT
+
+  Method B: Use screen ruler
+    - Download: https://www.windows10.pro/screen-ruler/
+    - Use to measure positions
+
+  Method C: Estimate (risky)
+    - Rough estimate based on screen size
+    - Less accurate but sometimes works
+
+STEP 5: Enter the values
+  Tool prompts:
+    Enter TOP position (Y coordinate): 506
+    Enter LEFT position (X coordinate): 330
+    Enter WIDTH (in pixels): 322
+    Enter HEIGHT (in pixels): 76
+
+  Example values (these are defaults):
+    Top: 506 (multiplier starts 506 pixels down)
+    Left: 330 (multiplier starts 330 pixels from left)
+    Width: 322 (multiplier area is 322 pixels wide)
+    Height: 76 (multiplier area is 76 pixels tall)
+
+STEP 6: Verify and save
+  Same as Method 1 - preview and save
+
+================================================================================
+                  METHOD 3: USE DEFAULT COORDINATES
+================================================================================
+
+Best for: Testing before fine-tuning
+Difficulty: Very easy
+Time: 30 seconds
+
+STEP 1: Run the tool
+  python capture_coordinates.py
+
+STEP 2: Choose Option 3
+  Enter your choice (1, 2, or 3): 3
+
+STEP 3: Use defaults
+  Default coordinates:
+    Top: 506
+    Left: 330
+    Width: 322
+    Height: 76
+
+  These work for 1080p screen with standard game layout
+
+⚠️ WARNING: These may NOT work for your specific setup!
+   - Different screen resolutions need different coordinates
+   - Different game positions need different coordinates
+   - Use Method 1 (interactive) for best results
+
+================================================================================
+                     WHAT GETS CREATED
+================================================================================
+
+After capturing, you get:
+
+1. coordinates.txt
+   - Your exact coordinates
+   - Ready to copy into script
+   - Saved for future reference
+   - Example:
+     Top: 506
+     Left: 330
+     Width: 322
+     Height: 76
+
+2. captured_region_TIMESTAMP.png
+   - Screenshot of just the multiplier area
+   - Visual verification that coordinates are correct
+   - Keep this for reference
+
+3. Printed code snippet
+   - Ready to paste into standalone_round_logger.py
+   - Example:
+     logger = AviatorRoundLogger(
+         region={
+             "top": 506,
+             "left": 330,
+             "width": 322,
+             "height": 76
+         },
+         poll_interval_ms=30
+     )
+
+================================================================================
+                      USING THE COORDINATES
+================================================================================
+
+After capturing, update the logger script:
+
+1. Open standalone_round_logger.py in text editor:
+   nano standalone_round_logger.py
+   # or: code standalone_round_logger.py
+
+2. Find the main() function at the bottom:
+   def main():
+       logger = AviatorRoundLogger(...)
+
+3. Replace the region parameter:
+   Before:
+     logger = AviatorRoundLogger(
+         region={
+             "top": 506,
+             "left": 330,
+             "width": 322,
+             "height": 76
+         },
+         ...
+     )
+
+   After (use YOUR captured coordinates):
+     logger = AviatorRoundLogger(
+         region={
+             "top": YOUR_TOP_VALUE,
+             "left": YOUR_LEFT_VALUE,
+             "width": YOUR_WIDTH_VALUE,
+             "height": YOUR_HEIGHT_VALUE
+         },
+         ...
+     )
+
+4. Save the file
+
+5. Test:
+   python TEST_LOGGER.py
+   # Should show all tests pass, especially test 5 (screen capture)
+
+6. Run logger:
+   python standalone_round_logger.py
+   # Should show multiplier values in real-time
+
+================================================================================
+                    TROUBLESHOOTING COORDINATES
+================================================================================
+
+Problem: Coordinates seem wrong, OCR not detecting
+Solution: Run capture tool again and select more carefully
+
+Problem: Can't select the region interactively
+Solution: Use Method 2 (manual input) instead
+
+Problem: Screenshot shows wrong area
+Solution: Make sure you dragged from EXACT corners of multiplier area
+         Not just approximate - be precise!
+
+Problem: Can capture but text not reading
+Solution: Multiplier area might need better contrast
+         Try adjusting region slightly (smaller/larger)
+
+Problem: Selection window won't open
+Solution: Ensure game window is visible and not minimized
+         Try closing other fullscreen applications
+
+Problem: Wrong coordinates after capture
+Solution: Verify the saved PNG file (captured_region_TIMESTAMP.png)
+         If it shows multiplier clearly, coordinates are correct
+         If it shows wrong area, coordinates need adjustment
+
+Testing coordinates:
+1. Run: python TEST_LOGGER.py
+2. Look at test 5 (Screen Capture) result
+3. Check the captured_region.png file
+4. Verify it shows your multiplier area clearly
+5. If yes: coordinates are correct ✓
+6. If no: run capture tool again and select more carefully
+
+================================================================================
+                         IMPORTANT NOTES
+================================================================================
+
+Screen resolution matters:
+  - 1920x1080: Need to capture for this resolution
+  - 1440x900: Different coordinates needed
+  - 2560x1440: Different coordinates needed
+  - Mobile/tablet: May not work with current setup
+
+Game position matters:
+  - Game in window: One position
+  - Game fullscreen: Different position
+  - Game windowed: Yet another position
+  - Only ONE setup works - capture YOUR exact setup
+
+Scaling matters:
+  - Windows scaling 100%: One position
+  - Windows scaling 125%: Different position
+  - Windows scaling 150%: Different again
+  - Capture for YOUR exact setup
+
+One-time setup:
+  - Capture coordinates ONCE
+  - Use same coordinates indefinitely
+  - Only recapture if you change screen/game position
+
+Dynamic coordinates not possible:
+  - Coordinates are FIXED for your setup
+  - You can't change game position and expect it to work
+  - If you move game window, must recapture coordinates
+
+================================================================================
+                      STEP-BY-STEP CHECKLIST
+================================================================================
+
+□ Aviator game is open on screen
+□ Multiplier is visible in game
+□ Run: python capture_coordinates.py
+□ Choose method 1 (interactive) - recommended
+□ Click and drag to select multiplier area
+□ Preview shows correct multiplier area
+□ Close preview window
+□ coordinates.txt file created ✓
+□ captured_region_TIMESTAMP.png file created ✓
+□ Copy coordinates from coordinates.txt or printed output
+□ Edit standalone_round_logger.py main() function
+□ Update region parameter with captured coordinates
+□ Save the file
+□ Run: python TEST_LOGGER.py (test 5 should pass)
+□ Run: python standalone_round_logger.py
+□ Watch console for multiplier values
+□ Verify data in Supabase database
+
+All checked? Ready to go! ✓
+
+================================================================================
+                          QUICK REFERENCE
+================================================================================
+
+Run capture tool:
+  python capture_coordinates.py
+
+Interactive selection (recommended):
+  Choose option: 1
+  Click top-left of multiplier
+  Drag to bottom-right
+  Release
+
+Manual input:
+  Choose option: 2
+  Enter TOP, LEFT, WIDTH, HEIGHT values
+
+Use defaults:
+  Choose option: 3
+  ⚠️ May not work for your setup!
+
+Update script:
+  Edit: standalone_round_logger.py
+  Find: def main():
+  Update: region parameter
+  Save file
+
+Test:
+  python TEST_LOGGER.py
+
+Run logger:
+  python standalone_round_logger.py
+
+================================================================================
+                      GETTING HELP
+================================================================================
+
+If capture doesn't work:
+
+1. Check game is on screen and visible
+   - Game must not be minimized
+   - Multiplier must be clearly visible
+   - Not in menu or loading screen
+
+2. Try interactive method first (method 1)
+   - Easiest and most reliable
+
+3. If interactive fails, use manual (method 2)
+   - More work but usually succeeds
+
+4. Verify captured image
+   - Open captured_region_TIMESTAMP.png
+   - Should show multiplier text clearly
+   - If not, coordinates are wrong
+
+5. Check TEST_LOGGER.py output
+   - Test 5 (Screen Capture) should PASS
+   - If FAIL, coordinates need adjustment
+
+6. Ask for help
+   - Share captured_region_TIMESTAMP.png
+   - Share what you see vs. what you expected
+   - System will help identify issue
+
+================================================================================
+                         YOU'RE READY!
+================================================================================
+
+Your capture tool is ready to use!
+
+Next step: python capture_coordinates.py
+
+Choose method 1 (interactive) for best results.
+
+Get those coordinates and your logger will work perfectly! ✓
+
+================================================================================

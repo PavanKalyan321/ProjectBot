@@ -190,22 +190,60 @@ class MultiplierReader:
         self.round_logger = get_round_logger() if enable_logging else None
         self.round_start_multiplier = None
         self.round_peak_multiplier = None
-        
+
+        # MSS Context Management - FIX for "unable to auto-find suitable render" error
+        self.sct = None
+        self._init_capture_context()
+
+    def _init_capture_context(self):
+        """Initialize persistent MSS capture context"""
+        try:
+            # Close previous context if exists
+            if self.sct is not None:
+                try:
+                    self.sct.close()
+                except:
+                    pass
+            # Create new context
+            self.sct = mss.mss()
+            print("✓ MSS capture context initialized")
+        except Exception as e:
+            print(f"⚠️ Error initializing MSS capture context: {e}")
+            self.sct = None
+
     def preprocess_for_ocr(self, img):
         """Convert image to grayscale and apply thresholding for better OCR"""
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
         return thresh
-    
+
     def capture_region(self):
-        """Capture the multiplier screen region"""
+        """Capture the multiplier screen region with persistent context"""
         try:
-            with mss.mss() as sct:
-                img = np.array(sct.grab(self.region))
-                return img[..., :3]  # Drop alpha channel
+            # Ensure context is initialized
+            if self.sct is None:
+                self._init_capture_context()
+
+            if self.sct is None:
+                raise Exception("Failed to initialize MSS context")
+
+            # Use persistent context instead of "with" statement
+            img = np.array(self.sct.grab(self.region))
+            return img[..., :3]  # Drop alpha channel
         except Exception as e:
             print(f"Error capturing screen region: {e}")
+            # Attempt to reinitialize context
+            self._init_capture_context()
             return None
+
+    def __del__(self):
+        """Cleanup capture context on object destruction"""
+        if self.sct is not None:
+            try:
+                self.sct.close()
+                print("✓ MSS capture context closed")
+            except Exception as e:
+                print(f"⚠️ Error closing MSS context: {e}")
     
     def fast_extract_multiplier_or_status(self, frame):
         """Extract multiplier value or status message from frame"""

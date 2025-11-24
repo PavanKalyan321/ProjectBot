@@ -1,0 +1,347 @@
+================================================================================
+                         START HERE
+              COORDINATE CAPTURE - CRITICAL FIRST STEP
+================================================================================
+
+⚠️  IMPORTANT: You MUST capture screen coordinates before using the logger!
+
+The Aviator game multiplier logger uses OCR (Optical Character Recognition)
+to read the multiplier value from your game screen. For OCR to work, it needs
+to know the EXACT pixel coordinates of where the multiplier is displayed.
+
+Without correct coordinates = Logger won't work! ✗
+With correct coordinates = Logger works perfectly! ✓
+
+This is a ONE-TIME setup task (5 minutes)
+
+================================================================================
+                        WHAT TO DO RIGHT NOW
+================================================================================
+
+1. Make sure your Aviator game is open and visible
+   - Game must show the multiplier number (e.g., "1.23x", "2.34x")
+   - Not in menu, not minimized, clearly visible
+
+2. Run the capture tool:
+   python capture_coordinates.py
+
+3. Choose Option 1 (Interactive Selection)
+   - Click and drag over the multiplier area
+   - Easiest method, takes 2 minutes
+
+4. The tool shows you what was captured
+   - Verify it's correct (should clearly show multiplier)
+   - If correct, coordinates are saved! ✓
+
+5. Done! You have coordinates.txt file with your coordinates
+
+That's it! Now you're ready to deploy on Debian.
+
+================================================================================
+                       FILES YOU NEED
+================================================================================
+
+Three files created for coordinate capture:
+
+1. capture_coordinates.py
+   - Main tool to capture coordinates
+   - Run this first
+   - Interactive or manual methods
+
+2. CAPTURE_COORDINATES_GUIDE.txt
+   - Detailed instructions
+   - Read if you need help
+   - 3 different methods explained
+
+3. COORDINATES_READY.txt
+   - Overview of what to do
+   - What happens after capture
+   - Using coordinates on Debian
+
+================================================================================
+                      3-MINUTE QUICK START
+================================================================================
+
+STEP 1: Run the tool
+  python capture_coordinates.py
+
+STEP 2: Choose method 1
+  Enter: 1
+
+STEP 3: Select multiplier area
+  - Click at top-left corner of multiplier display
+  - Drag to bottom-right corner
+  - Release mouse
+
+STEP 4: Verify result
+  - A window shows the captured area
+  - Should clearly show the multiplier number
+  - Close window when satisfied
+
+STEP 5: Check created files
+  - coordinates.txt (your coordinates)
+  - captured_region_TIMESTAMP.png (screenshot)
+
+DONE! Coordinates captured successfully ✓
+
+Use these coordinates when setting up on Debian.
+
+================================================================================
+                    WHY COORDINATES ARE CRITICAL
+================================================================================
+
+The logger works like this:
+
+Game Screen
+    ↓ (OCR reads this area)
+Tesseract OCR
+    ↓ (extracts text like "2.34")
+Multiplier Parser
+    ↓ (validates and uses it)
+Database Insert
+    ↓
+Supabase
+
+But OCR can ONLY read from the EXACT area you specify!
+
+If coordinates are WRONG:
+  ✗ OCR reads empty area → No text found
+  ✗ OCR reads buttons → Wrong text extracted
+  ✗ OCR reads adjacent area → Misses multiplier
+  Result: Logger fails silently ✗
+
+If coordinates are RIGHT:
+  ✓ OCR reads multiplier text → "1.23x" extracted
+  ✓ Logger validates → "1.23" is valid
+  ✓ Inserted to database → Works! ✓
+
+Example of correct capture:
+  Window shows: [1.23x] or [2.34x] or [15.45x]
+  Text is clear and readable
+  Just the multiplier area, nothing else
+
+Example of wrong capture:
+  Window shows: [Game buttons] or [Empty space]
+  Or shows game UI but not multiplier
+  Multiplier not visible in captured area
+
+================================================================================
+                   COORDINATE CAPTURE METHODS
+================================================================================
+
+Choose ONE method to capture coordinates:
+
+METHOD 1: INTERACTIVE (Recommended for most people)
+────────────────────────────────────────────────────
+Most easy way. Click and drag. 2 minutes.
+
+  python capture_coordinates.py
+  Choose: 1
+  Click top-left of multiplier, drag to bottom-right
+  Release mouse
+  Verify in preview window
+  Done!
+
+  Best for: Users who want visual feedback
+
+
+METHOD 2: MANUAL INPUT (For advanced users)
+─────────────────────────────────────────────
+Type coordinates manually. 3 minutes.
+
+  python capture_coordinates.py
+  Choose: 2
+  Enter: TOP, LEFT, WIDTH, HEIGHT values
+  Tool verifies and saves
+  Done!
+
+  Best for: If interactive method doesn't work
+
+
+METHOD 3: USE DEFAULTS (Quick test only)
+──────────────────────────────────────────
+Use pre-set coordinates. 30 seconds.
+
+  python capture_coordinates.py
+  Choose: 3
+  Uses default: top=506, left=330, width=322, height=76
+  Done!
+
+  ⚠️  WARNING: These defaults may NOT work for YOUR screen!
+  Only use if you know your screen is 1080p with standard layout.
+  For best results, use Method 1.
+
+================================================================================
+                        WHAT HAPPENS NEXT
+================================================================================
+
+After capturing coordinates:
+
+1. IMMEDIATELY:
+   - coordinates.txt file created
+   - captured_region_TIMESTAMP.png file created
+   - Code snippet printed to screen
+
+2. BEFORE DEBIAN SETUP:
+   - Note your coordinates from coordinates.txt
+   - Or copy the file to Debian
+
+3. ON DEBIAN:
+   - Edit standalone_round_logger.py
+   - Update the region parameter with your coordinates
+   - Save file
+
+4. WHEN RUNNING:
+   - Run: python TEST_LOGGER.py (test 5 should PASS)
+   - Run: python standalone_round_logger.py
+   - Should see: "Current: 1.23x (peak: 1.23x)"
+   - Data should appear in Supabase
+
+That's the flow! One capture gives you coordinates for production!
+
+================================================================================
+                      EXPECTED RESULTS
+================================================================================
+
+✓ CORRECT SETUP:
+  - captured_region_TIMESTAMP.png shows multiplier text clearly
+  - coordinates.txt has your coordinates
+  - Can copy values to standalone_round_logger.py
+  - TEST_LOGGER.py passes all 6 tests
+  - Logger shows multiplier values in real-time
+  - Data appears in Supabase ✓
+
+✗ WRONG SETUP:
+  - captured_region_TIMESTAMP.png shows empty or wrong area
+  - Coordinates are clearly incorrect
+  - TEST_LOGGER.py test 5 fails
+  - Logger shows no multiplier values
+  - No data in Supabase ✗
+
+If wrong: Run capture tool again and select more carefully.
+
+================================================================================
+                    FILE REFERENCES
+================================================================================
+
+Quick Start:
+  → This file (START_HERE_COORDINATES.txt)
+  → Read this first!
+
+Detailed Instructions:
+  → CAPTURE_COORDINATES_GUIDE.txt
+  → How to use each method
+  → Troubleshooting
+
+Overview:
+  → COORDINATES_READY.txt
+  → What happens after capture
+  → Using on Debian
+
+Tool:
+  → capture_coordinates.py
+  → Run this to capture
+
+================================================================================
+                       FINAL CHECKLIST
+================================================================================
+
+Before capturing:
+  □ Aviator game is open
+  □ Multiplier is visible (e.g., "1.23x" showing)
+  □ Game window is not minimized
+  □ You have Python installed
+  □ You can see your game on screen
+
+Capturing:
+  □ Ran: python capture_coordinates.py
+  □ Chose method 1 (or 2/3)
+  □ Selected multiplier area (or entered values)
+  □ Verified the captured screenshot
+
+After capture:
+  □ coordinates.txt file exists
+  □ captured_region_TIMESTAMP.png exists
+  □ Screenshot shows multiplier clearly
+  □ Noted the coordinate values
+
+Ready for Debian:
+  □ Coordinates ready to copy
+  □ Files ready to transfer
+  □ Ready to update standalone_round_logger.py
+
+All checked? Let's go! ✓
+
+================================================================================
+                       ONE-COMMAND SETUP
+================================================================================
+
+For experienced users, here's everything in one go:
+
+1. Open game, make sure multiplier shows
+2. Run: python capture_coordinates.py
+3. Choose: 1
+4. Select: Multiplier area (click and drag)
+5. Verify: Screenshot shows multiplier
+6. Done!
+
+Then on Debian:
+7. Edit: standalone_round_logger.py
+8. Update: region parameter (copy from coordinates.txt)
+9. Run: python TEST_LOGGER.py (verify test 5 passes)
+10. Run: python standalone_round_logger.py (start logging!)
+
+Simple! That's the whole process.
+
+================================================================================
+                      TROUBLESHOOTING
+================================================================================
+
+Q: Nothing happens when I run the tool
+A: Make sure you're in the Project directory
+   cd c:\Project
+   python capture_coordinates.py
+
+Q: Interactive window doesn't open
+A: Check your Python environment
+   pip install mss opencv-python pillow
+   Make sure game is open and visible
+
+Q: Can't select the area
+A: Use Method 2 (manual input) instead
+   Type coordinates manually
+
+Q: Screenshot shows wrong area
+A: Try again, select more carefully
+   Click exact top-left corner
+   Drag to exact bottom-right corner
+
+Q: Coordinates look wrong
+A: Verify captured_region_TIMESTAMP.png file
+   If it shows multiplier: coordinates OK ✓
+   If it shows wrong area: try again ✗
+
+Q: Still not working
+A: See CAPTURE_COORDINATES_GUIDE.txt
+   Has detailed troubleshooting
+   Common issues and solutions
+
+================================================================================
+                       YOU'RE ALL SET!
+================================================================================
+
+Everything is ready. Just:
+
+  1. Open your Aviator game
+  2. Run: python capture_coordinates.py
+  3. Select multiplier area
+  4. Save coordinates
+  5. Use on Debian
+
+That's it!
+
+Your logger will work perfectly with correct coordinates.
+
+Let's capture those coordinates! 🚀
+
+================================================================================

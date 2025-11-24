@@ -1,0 +1,374 @@
+================================================================================
+                    COORDINATES CAPTURE TOOL READY
+              Find Exact Position of Game Multiplier Display
+================================================================================
+
+Status: ✅ Ready to capture coordinates
+Created: 2025-11-23
+Critical: YES - Required before running logger
+
+================================================================================
+                      WHAT YOU NEED TO DO
+================================================================================
+
+STEP 1: OPEN YOUR AVIATOR GAME
+────────────────────────────────────────────────────────────────────────────
+Make sure the game is open on your screen and showing the multiplier number.
+
+STEP 2: RUN THE CAPTURE TOOL
+────────────────────────────────────────────────────────────────────────────
+On your Windows machine (where the game is running):
+
+  python capture_coordinates.py
+
+STEP 3: CHOOSE YOUR METHOD
+────────────────────────────────────────────────────────────────────────────
+The tool will ask you to choose:
+
+  1 = Interactive Selection (RECOMMENDED)
+      Click and drag on the multiplier area
+      Easy and visual
+      Time: 2 minutes
+
+  2 = Manual Input
+      Type coordinates manually
+      Time: 3 minutes
+
+  3 = Use Defaults
+      Use default coordinates
+      May NOT work for your setup
+      Time: 30 seconds
+
+STEP 4: GET YOUR COORDINATES
+────────────────────────────────────────────────────────────────────────────
+After selection, you get:
+
+  ✓ coordinates.txt file
+    - Your exact screen coordinates
+    - Save for reference
+
+  ✓ captured_region_TIMESTAMP.png
+    - Screenshot showing what was captured
+    - Verify it shows your multiplier clearly
+
+  ✓ Code snippet to paste into script
+    - Ready to use in standalone_round_logger.py
+
+================================================================================
+                      3 WAYS TO CAPTURE
+================================================================================
+
+METHOD 1: INTERACTIVE (Easiest & Recommended)
+═════════════════════════════════════════════════════════════════════════════
+
+Best for: Most users
+Difficulty: Easy (no typing needed)
+Time: 2 minutes
+
+How it works:
+  1. Tool opens a window showing your full screen
+  2. You click at TOP-LEFT corner of multiplier
+  3. Drag to BOTTOM-RIGHT corner
+  4. Release mouse
+  5. Tool shows preview of captured area
+  6. Done! Coordinates saved
+
+Run:
+  python capture_coordinates.py
+  Choose: 1
+
+Visual example:
+  Game Screen shown:
+  ┌─────────────────────────────────────────────┐
+  │ Aviator Game                                │
+  │                                             │
+  │  [Multiplier: 2.34x]  ← Click top-left    │
+  │  [Multiplier: 2.34x]                       │
+  │                       Drag to bottom-right │
+  │  [buttons] [controls]                      │
+  └─────────────────────────────────────────────┘
+
+Afterwards:
+  A window shows just the multiplier area clearly captured ✓
+
+If wrong:
+  Close window, run tool again, try more carefully
+
+
+METHOD 2: MANUAL INPUT
+═════════════════════════════════════════════════════════════════════════════
+
+Best for: If interactive doesn't work
+Difficulty: Medium (requires typing numbers)
+Time: 3 minutes
+
+How it works:
+  1. You manually measure coordinates on screen
+  2. Type values into tool
+  3. Tool verifies and saves coordinates
+
+Run:
+  python capture_coordinates.py
+  Choose: 2
+
+You need to provide:
+  Top (Y coordinate):    How far down from top of screen (e.g., 506)
+  Left (X coordinate):   How far from left of screen (e.g., 330)
+  Width (in pixels):     How wide the area is (e.g., 322)
+  Height (in pixels):    How tall the area is (e.g., 76)
+
+How to find these values:
+  - Print Screen to capture game image
+  - Open in Paint
+  - Hover cursor, note coordinates shown at bottom
+  - Measure from top-left to bottom-right of multiplier
+
+Example values:
+  Top: 506
+  Left: 330
+  Width: 322
+  Height: 76
+
+Note: These are defaults. Your values will likely be different!
+
+
+METHOD 3: USE DEFAULTS
+═════════════════════════════════════════════════════════════════════════════
+
+Best for: Quick testing
+Difficulty: Very easy
+Time: 30 seconds
+
+How it works:
+  1. Uses pre-configured default coordinates
+  2. Works for 1080p screen with standard game layout
+
+Run:
+  python capture_coordinates.py
+  Choose: 3
+
+Uses these coordinates:
+  Top: 506
+  Left: 330
+  Width: 322
+  Height: 76
+
+⚠️  WARNING:
+  These defaults may NOT work for your specific setup!
+  Different screen resolutions need different coordinates.
+  Use Method 1 (interactive) for best results.
+
+================================================================================
+                   WHAT TO DO AFTER CAPTURE
+================================================================================
+
+After capturing, you have three files:
+
+1. coordinates.txt
+   - Text file with your coordinates
+   - Example content:
+     Top (Y position):    506
+     Left (X position):   330
+     Width:              322
+     Height:             76
+
+2. captured_region_TIMESTAMP.png
+   - Screenshot of just the multiplier area
+   - Verify it shows multiplier clearly
+   - Keep for reference
+
+3. Printed code snippet
+   - Ready to paste into standalone_round_logger.py
+   - Example:
+     region={
+         "top": 506,
+         "left": 330,
+         "width": 322,
+         "height": 76
+     }
+
+Next: Copy coordinates to Debian setup
+
+================================================================================
+                    USING COORDINATES ON DEBIAN
+================================================================================
+
+When you set up on Debian:
+
+1. Copy coordinates.txt to Debian VM
+   scp coordinates.txt user@debian-vm:/path/to/Project/
+
+2. Or note the values from the file
+
+3. Edit standalone_round_logger.py in Debian
+   nano standalone_round_logger.py
+
+4. Find the main() function:
+   def main():
+       logger = AviatorRoundLogger(
+           region={
+               "top": 506,
+               "left": 330,
+               ...
+
+5. Replace with YOUR captured coordinates:
+   region={
+       "top": YOUR_TOP_VALUE,
+       "left": YOUR_LEFT_VALUE,
+       "width": YOUR_WIDTH_VALUE,
+       "height": YOUR_HEIGHT_VALUE
+   }
+
+6. Save file
+
+7. Test:
+   python TEST_LOGGER.py
+
+   Check test 5 (Screen Capture) - should PASS
+
+8. Run:
+   python standalone_round_logger.py
+
+Done! Logger should detect multiplier correctly!
+
+================================================================================
+                      VERIFYING COORDINATES
+================================================================================
+
+How to know if coordinates are correct:
+
+✓ CORRECT COORDINATES:
+  - captured_region_TIMESTAMP.png shows multiplier text clearly
+  - TEST_LOGGER.py test 5 (Screen Capture) PASSES
+  - Python logger shows: "Current: 1.23x (peak: 1.23x)"
+  - Multiplier values appear in console in real-time
+  - Data appears in Supabase database
+
+✗ WRONG COORDINATES:
+  - captured_region_TIMESTAMP.png shows empty area or buttons
+  - TEST_LOGGER.py test 5 (Screen Capture) FAILS
+  - Python logger shows: "Current: None" or empty values
+  - No multiplier values in console
+  - No data logged to database
+
+If wrong:
+  1. Run capture_coordinates.py again
+  2. Select more carefully (click exact corners)
+  3. Verify new screenshot looks correct
+  4. Update coordinates in standalone_round_logger.py
+
+================================================================================
+                         IMPORTANT NOTES
+================================================================================
+
+Screen resolution matters:
+  - Different resolutions need different coordinates
+  - 1920x1080 vs 1440x900 vs 2560x1440 = different coordinates
+  - Capture for YOUR screen resolution
+
+Game position matters:
+  - Game in window: Coordinates for windowed position
+  - Game fullscreen: Coordinates for fullscreen position
+  - Must capture exact position you'll use
+  - If you move game, must recapture
+
+Windows scaling matters:
+  - 100% scaling: One position
+  - 125% scaling: Different position
+  - 150% scaling: Different again
+  - Capture with your current scaling
+
+One-time setup:
+  - Capture once
+  - Use coordinates indefinitely
+  - Unless you change screen/game position
+  - Then recapture coordinates
+
+Coordinates are specific:
+  - Fixed for your setup
+  - Can't be generic for all screens
+  - Must be captured for YOUR configuration
+
+================================================================================
+                       QUICK CHECKLIST
+================================================================================
+
+Before capturing:
+  □ Aviator game is open
+  □ Multiplier is visible on screen
+  □ Game is not minimized
+  □ Not in menu or loading screen
+
+Capturing:
+  □ Run: python capture_coordinates.py
+  □ Choose method 1 (interactive)
+  □ Click top-left of multiplier
+  □ Drag to bottom-right
+  □ Release mouse
+
+After capture:
+  □ coordinates.txt created ✓
+  □ captured_region_TIMESTAMP.png created ✓
+  □ Open PNG file, verify it shows multiplier
+  □ Note the coordinates (or copy from file)
+  □ Ready for Debian setup
+
+On Debian:
+  □ Copy coordinates.txt to Debian
+  □ Edit standalone_round_logger.py
+  □ Update region parameter
+  □ Save file
+  □ Run: python TEST_LOGGER.py
+  □ Check test 5 passes
+  □ Run: python standalone_round_logger.py
+  □ Verify multiplier appears in console
+
+Done! ✓
+
+================================================================================
+                      GETTING HELP
+================================================================================
+
+If something doesn't work:
+
+1. Check the captured_region_TIMESTAMP.png
+   - If it shows multiplier: coordinates correct ✓
+   - If it shows wrong area: coordinates wrong ✗
+   - If it shows nothing: selection was empty
+
+2. Run capture_coordinates.py again
+   - Select more carefully
+   - Click exact corners of multiplier area
+   - Drag to opposite corner
+
+3. Use Method 2 (manual) if Method 1 fails
+   - More work but often more reliable
+
+4. Check TEST_LOGGER.py output
+   - Test 5 (Screen Capture) results
+   - Tells you if region is correct
+
+5. For detailed help:
+   - See CAPTURE_COORDINATES_GUIDE.txt
+   - Has troubleshooting section
+   - Common issues and fixes
+
+================================================================================
+                         YOU'RE READY!
+================================================================================
+
+Your coordinate capture tool is ready to use!
+
+NEXT ACTION:
+
+  1. Open your Aviator game
+  2. Run: python capture_coordinates.py
+  3. Select the multiplier area
+  4. Save coordinates
+  5. Use coordinates in Debian setup
+
+That's it!
+
+Once you have correct coordinates, your logger will work perfectly! ✓
+
+================================================================================

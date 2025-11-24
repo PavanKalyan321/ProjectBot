@@ -1,0 +1,250 @@
+================================================================================
+                    TEST RENDER FIX - QUICK START
+              Verify "Unable to Auto-Find Suitable Render" is Fixed
+================================================================================
+
+Quick Test (5 minutes)
+
+================================================================================
+                         TEST PROCEDURE
+================================================================================
+
+STEP 1: First Launch
+────────────────────────────────────────────────────────────────────────────
+
+cd c:\Project
+python backend/bot.py --mode observation
+
+Expected Output:
+  ✅ Bot initializing...
+  ✓ MSS capture context initialized
+  ✅ Game launched
+  ✓ Round data reading...
+
+Result: PASS if bot runs without errors
+
+STOP BOT: Press Ctrl+C or wait for stop command
+
+Expected during shutdown:
+  ✅ Closed MSS capture context
+  ✓ LOGGING SESSION ENDED
+
+
+STEP 2: Second Launch (The Critical Test)
+────────────────────────────────────────────────────────────────────────────
+
+Immediately run again (without waiting):
+
+python backend/bot.py --mode observation
+
+Expected Output:
+  ✅ Bot initializing...
+  ✓ MSS capture context initialized  ← Should NOT error here
+  ✅ Game launched
+  ✓ Round data reading...
+
+CRITICAL: Should NOT see:
+  ❌ Error: unable to auto-find suitable render
+  ❌ Exception during context initialization
+  ❌ Display connection failed
+
+Result: PASS if bot runs without render error
+
+
+STEP 3: Third Launch (Reliability Test)
+────────────────────────────────────────────────────────────────────────────
+
+Stop the bot again, then launch once more:
+
+python backend/bot.py --mode observation
+
+Expected Output: Same as Step 2 (no render errors)
+
+Result: PASS if bot continues working
+
+
+================================================================================
+                        EXPECTED BEHAVIOR
+================================================================================
+
+New Console Output (after fix):
+
+  ✓ MSS capture context initialized
+  [Bot running normally...]
+  ✓ Round 1 logged: 2.34x
+  ✓ Round 2 logged: 1.89x
+  ...
+  ✅ Closed MSS capture context
+  📝 LOGGING SESSION ENDED: 2025-11-23 10:30:45
+  📄 Full log saved to: bot_session_20251123_103045.log
+
+You will see these new lines:
+  - "✓ MSS capture context initialized" (on startup)
+  - "✅ Closed MSS capture context" (on shutdown)
+
+
+================================================================================
+                       TROUBLESHOOTING
+================================================================================
+
+If render error still appears:
+
+Problem: "unable to auto-find suitable render" on launch
+Solution:
+  1. Manually restart Xvfb (on VM):
+     sudo systemctl restart xvfb
+     sleep 2
+
+  2. Try launch again:
+     python backend/bot.py --mode observation
+
+  3. If still fails, check Xvfb status:
+     sudo systemctl status xvfb
+
+  4. If Xvfb not running:
+     sudo systemctl start xvfb
+
+
+Problem: Context initialization fails
+Solution:
+  1. Check MSS installation:
+     python -c "import mss; print('✓ MSS OK')"
+
+  2. Check display:
+     echo $DISPLAY
+
+  3. Verify X11/Xvfb running:
+     ps aux | grep X
+
+
+Problem: Multiple rapid restarts fail
+Solution:
+  1. Add delay between launches:
+     python backend/bot.py
+     # Wait 10 seconds
+     python backend/bot.py
+
+  2. Or use Xvfb restart:
+     sudo systemctl restart xvfb
+     sleep 2
+     python backend/bot.py
+
+
+================================================================================
+                       WHAT WAS FIXED
+================================================================================
+
+Code Changes:
+
+1. restart_xvfb.sh (NEW)
+   → Restarts virtual display before bot launch
+   → Clears stale rendering resources
+
+2. backend/readregion.py (IMPROVED)
+   → Persistent MSS context instead of create/destroy
+   → Explicit cleanup on object destruction
+
+3. backend/bot.py (IMPROVED)
+   → Explicit MSS cleanup during shutdown
+   → Prevents resource leaks
+
+Result: Multiple game launches work without errors
+
+
+================================================================================
+                       QUICK REFERENCE
+================================================================================
+
+Test Command #1 (Single Launch):
+  python backend/bot.py --mode observation
+
+Test Command #2 (Multiple Launches):
+  for i in {1..3}; do
+    python backend/bot.py --mode observation &
+    sleep 2
+    kill %1
+    sleep 2
+  done
+
+Test Command #3 (VM with Xvfb reset):
+  sudo systemctl restart xvfb
+  sleep 2
+  python backend/bot.py --mode observation
+
+Check Logs:
+  tail -f bot_session_*.log | grep -i "mss\|context\|render"
+
+View All Sessions:
+  ls -la bot_session_*.log
+
+
+================================================================================
+                       SUCCESS CRITERIA
+================================================================================
+
+✅ FIX IS SUCCESSFUL IF:
+
+1. First launch works
+   □ Bot initializes without errors
+   □ Game launches successfully
+   □ Multiplier detection works
+   □ Shutdown is clean
+
+2. Second launch works
+   □ NO "unable to auto-find suitable render" error
+   □ Bot initializes successfully
+   □ Game launches successfully
+   □ Multiplier detection works
+
+3. Third+ launch works
+   □ Can restart as many times as needed
+   □ Each launch is clean and fresh
+   □ No resource leaks accumulate
+
+4. Log shows cleanup
+   □ Each startup: "MSS capture context initialized"
+   □ Each shutdown: "Closed MSS capture context"
+   □ No error messages about display
+
+
+================================================================================
+                       PASS/FAIL
+================================================================================
+
+PASS ✅
+- Can launch game multiple times
+- No render errors after first launch
+- Clean shutdown/startup cycles
+- Logs show proper initialization/cleanup
+
+FAIL ❌
+- Render error appears on second launch
+- MSS context initialization fails
+- Resource leaks cause instability
+- Repeated launches don't work
+
+
+================================================================================
+                       NEXT STEPS
+================================================================================
+
+1. Run this test now
+2. Verify all 3 launches work without render errors
+3. Check logs for initialization/cleanup messages
+4. If PASS: Deploy to Debian VM
+5. If FAIL: Check troubleshooting section above
+
+================================================================================
+                       READY TO TEST!
+================================================================================
+
+The fix has been applied to your code.
+
+Run the test now:
+  python backend/bot.py --mode observation
+
+Then stop and run again. You should see no render errors!
+
+Happy testing! 🚀
+
+================================================================================

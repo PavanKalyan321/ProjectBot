@@ -1,0 +1,616 @@
+================================================================================
+                  STANDALONE ROUND LOGGER - DEBIAN SETUP GUIDE
+================================================================================
+
+Complete setup instructions for running the Aviator Round Logger on Debian Linux.
+
+Status: ✅ READY FOR DEBIAN
+Platform: Debian 10, 11, 12 (any recent version)
+Python: 3.8+
+
+================================================================================
+                        QUICK START (Debian)
+================================================================================
+
+Complete setup from scratch takes ~15 minutes.
+
+STEP 1: Connect to Debian VM (2 minutes)
+────────────────────────────────────────────────────────────────────────────
+
+Via SSH from your Windows machine:
+  ssh user@debian-vm-ip-address
+
+Or from Google Cloud:
+  gcloud compute ssh instance-name --zone=your-zone
+
+Example:
+  ssh user@192.168.1.100
+  # or: gcloud compute ssh debian-aviator --zone=us-central1-a
+
+================================================================================
+
+STEP 2: Install System Dependencies (5 minutes)
+────────────────────────────────────────────────────────────────────────────
+
+Update package manager:
+  sudo apt-get update
+
+Install Python and build tools:
+  sudo apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    build-essential \
+    libpq-dev
+
+Install Tesseract OCR:
+  sudo apt-get install -y \
+    tesseract-ocr \
+    libtesseract-dev
+
+Install screen (for background processes):
+  sudo apt-get install -y screen
+
+Verify installations:
+  python3 --version        # Should show Python 3.8+
+  pip3 --version           # Should show pip 20+
+  tesseract --version      # Should show tesseract 4.0+ or 5.x
+
+Expected output:
+  Python 3.10.x
+  pip 23.x
+  tesseract 5.x.x (or 4.1.x)
+
+================================================================================
+
+STEP 3: Download and Setup Project (3 minutes)
+────────────────────────────────────────────────────────────────────────────
+
+If you haven't downloaded the project yet:
+
+Download via git:
+  git clone https://github.com/PavanKalyan321/ProjectBot.git
+  cd ProjectBot
+  git checkout feature/analytics-database
+
+Or copy files from Windows:
+  # On Windows, use SCP or cloud file transfer
+  scp -r c:\Project/* user@debian-vm:/path/to/Project
+
+Navigate to project:
+  cd /path/to/Project
+
+Or if already there:
+  cd ~/Project
+  pwd  # Confirm location
+
+================================================================================
+
+STEP 4: Create Virtual Environment (2 minutes)
+────────────────────────────────────────────────────────────────────────────
+
+Create venv:
+  python3 -m venv venv
+
+Activate it:
+  source venv/bin/activate
+
+You should see: (venv) user@debian:~/Project$
+
+Install Python packages:
+  pip install --upgrade pip
+  pip install -r requirements.txt
+
+Expected output:
+  Successfully installed <packages>...
+
+If requirements.txt is missing, install manually:
+  pip install \
+    pytesseract==0.3.10 \
+    opencv-python==4.8.1.78 \
+    mss==9.0.1 \
+    pillow==10.0.1 \
+    psycopg2-binary==2.9.9 \
+    python-dotenv==1.0.0 \
+    numpy
+
+================================================================================
+
+STEP 5: Configure Environment Variables (1 minute)
+────────────────────────────────────────────────────────────────────────────
+
+Create .env file:
+  nano .env
+
+Add these lines (replace with your actual Supabase credentials):
+  DB_HOST=zofojiubrykbtmstfhzx.supabase.co
+  DB_PORT=5432
+  DB_NAME=postgres
+  DB_USER=postgres
+  DB_PASSWORD=your_supabase_password_here
+
+Save (Ctrl+X, then Y, then Enter)
+
+Verify:
+  cat .env
+
+Should show:
+  DB_HOST=zofojiubrykbtmstfhzx.supabase.co
+  DB_PORT=5432
+  DB_NAME=postgres
+  DB_USER=postgres
+  DB_PASSWORD=...
+
+================================================================================
+
+STEP 6: Test Everything (2 minutes)
+────────────────────────────────────────────────────────────────────────────
+
+Make sure venv is activated:
+  source venv/bin/activate
+
+Run the test script:
+  python TEST_LOGGER.py
+
+Expected output:
+  ======================================================================
+                    SYSTEM TEST
+  ======================================================================
+
+  1. Tesseract OCR installation
+  2. Python packages
+  3. Environment variables
+  4. Database connection
+  5. Screen capture
+  6. OCR extraction
+
+  All should show: ✓ PASS
+
+If all tests pass:
+  Result: 6/6 tests passed
+  All systems ready!
+
+If tests fail, see troubleshooting section below.
+
+================================================================================
+
+STEP 7: Run the Logger (Ready to go!)
+────────────────────────────────────────────────────────────────────────────
+
+Option A: Run in foreground (for testing):
+  python standalone_round_logger.py
+
+Should see:
+  =====================================================================
+  Aviator Round Logger Started
+  =====================================================================
+  Screen region: top=506, left=330, width=322, height=76
+  Poll interval: 30ms
+  =====================================================================
+  ✓ Connected to Supabase database
+  Monitoring game... Press Ctrl+C to stop
+
+  Current: 1.23x (peak: 1.23x) | Rounds logged: 0
+  ...
+
+Stop with: Ctrl+C
+
+
+Option B: Run in background (recommended for production):
+  screen -S logger
+  python standalone_round_logger.py
+  # Detach with: Ctrl+A then D
+
+Resume later:
+  screen -r logger
+
+================================================================================
+                      DEBIAN-SPECIFIC NOTES
+================================================================================
+
+Tesseract Installation:
+  ✓ Debian package installs to: /usr/bin/tesseract
+  ✓ Script auto-detects this path
+  ✓ No manual configuration needed
+
+Python Versions:
+  ✓ Debian 10: Python 3.7 (use python3.9 package)
+  ✓ Debian 11: Python 3.9 (recommended)
+  ✓ Debian 12: Python 3.11 (recommended)
+
+Virtual Environment:
+  ✓ Always activate before running: source venv/bin/activate
+  ✓ Check if active: (venv) prefix in terminal
+  ✓ Deactivate: deactivate
+
+Screen Sessions (for background processes):
+  Start:     screen -S logger
+  Detach:    Ctrl+A then D
+  List:      screen -ls
+  Reattach:  screen -r logger
+  Kill:      screen -X -S logger quit
+
+File Permissions:
+  If you get "Permission denied":
+    chmod +x standalone_round_logger.py
+    chmod +x TEST_LOGGER.py
+
+Path Issues:
+  Always ensure you're in the Project directory:
+    pwd  # Should show /path/to/Project
+    ls   # Should show standalone_round_logger.py
+
+================================================================================
+                    RUNNING 24/7 ON DEBIAN VM
+================================================================================
+
+Option 1: Using Screen (Simple & Reliable)
+────────────────────────────────────────────
+
+Start logging:
+  screen -S logger
+  source venv/bin/activate
+  python standalone_round_logger.py
+
+Detach:
+  Ctrl+A then D
+
+Check it's running:
+  screen -ls
+
+Should show:
+  There is a screen on:
+      12345.logger (Detached)
+
+Resume if needed:
+  screen -r logger
+
+Stop when done:
+  screen -X -S logger quit
+
+
+Option 2: Using Systemd (Professional/Persistent)
+───────────────────────────────────────────────────
+
+Create service file:
+  sudo nano /etc/systemd/system/aviator-logger.service
+
+Paste this:
+  [Unit]
+  Description=Aviator Round Logger
+  After=network.target
+
+  [Service]
+  Type=simple
+  User=your_username
+  WorkingDirectory=/path/to/Project
+  Environment="PATH=/path/to/Project/venv/bin"
+  ExecStart=/path/to/Project/venv/bin/python standalone_round_logger.py
+  Restart=on-failure
+  RestartSec=10
+
+  [Install]
+  WantedBy=multi-user.target
+
+Replace:
+  your_username → your actual username
+  /path/to/Project → actual project path (use: pwd)
+
+Enable and start:
+  sudo systemctl daemon-reload
+  sudo systemctl enable aviator-logger
+  sudo systemctl start aviator-logger
+
+Check status:
+  sudo systemctl status aviator-logger
+
+View logs:
+  sudo journalctl -u aviator-logger -f
+
+Stop service:
+  sudo systemctl stop aviator-logger
+
+
+Option 3: Using Cron (Automatic Restart)
+──────────────────────────────────────────
+
+Create restart script (logger-restart.sh):
+  #!/bin/bash
+  cd /path/to/Project
+  source venv/bin/activate
+  python standalone_round_logger.py
+
+Make executable:
+  chmod +x logger-restart.sh
+
+Add to crontab:
+  crontab -e
+
+Add this line (restarts every hour):
+  0 * * * * /path/to/Project/logger-restart.sh >> /path/to/Project/logger.log 2>&1
+
+Or use this to always run (restarts if crashes):
+  * * * * * pgrep -f "python standalone_round_logger.py" > /dev/null || \
+    (cd /path/to/Project && source venv/bin/activate && python standalone_round_logger.py &)
+
+================================================================================
+                       TROUBLESHOOTING (DEBIAN)
+================================================================================
+
+Issue: "Permission denied" when running script
+  Solution:
+    chmod +x standalone_round_logger.py
+    chmod +x TEST_LOGGER.py
+
+Issue: "ModuleNotFoundError: No module named 'pytesseract'"
+  Solution:
+    # Ensure venv is activated
+    source venv/bin/activate
+
+    # Reinstall packages
+    pip install -r requirements.txt
+
+Issue: "tesseract: command not found"
+  Solution:
+    sudo apt-get install tesseract-ocr
+
+    # Verify
+    tesseract --version
+
+Issue: "psycopg2: No module named '_psycopg2'"
+  Solution:
+    sudo apt-get install libpq-dev
+    pip install --force-reinstall psycopg2-binary
+
+Issue: "Database connection refused"
+  Solution:
+    # Check .env file
+    cat .env
+
+    # Verify Supabase credentials
+    # Test connection
+    python -c "
+    import psycopg2
+    import os
+    from dotenv import load_dotenv
+    load_dotenv()
+    try:
+        conn = psycopg2.connect(
+            host=os.getenv('DB_HOST'),
+            port=int(os.getenv('DB_PORT')),
+            database=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASSWORD'),
+            sslmode='require'
+        )
+        print('✓ Connection successful')
+        conn.close()
+    except Exception as e:
+        print(f'✗ Error: {e}')
+    "
+
+Issue: "No display/screen capture not working"
+  Solution:
+    # This is expected on headless VM with no display
+    # You need X11 forwarding or a virtual display
+
+    # Install xvfb (virtual display)
+    sudo apt-get install xvfb
+
+    # Run with virtual display
+    xvfb-run -a python standalone_round_logger.py
+
+    # OR use X11 forwarding from Windows
+    ssh -X user@debian-vm
+
+Issue: "Python version is too old"
+  Solution:
+    # Check version
+    python3 --version
+
+    # If < 3.8, install newer version
+    # Debian 10:
+    sudo apt-get install python3.9 python3.9-venv
+    python3.9 -m venv venv
+    source venv/bin/activate
+
+    # Or use deadsnakes PPA
+    sudo add-apt-repository ppa:deadsnakes/ppa
+    sudo apt-get update
+    sudo apt-get install python3.11
+
+Issue: "High CPU usage"
+  Solution:
+    # Increase polling interval (slower but less CPU)
+    # Edit standalone_round_logger.py, change:
+    logger = AviatorRoundLogger(
+        poll_interval_ms=50  # was 30
+    )
+
+Issue: "Screen region doesn't capture multiplier"
+  Solution:
+    # Region is for specific game resolution
+    # Run TEST_LOGGER.py to see what's captured
+    python TEST_LOGGER.py
+
+    # Check captured_region.png
+    # Adjust coordinates in standalone_round_logger.py
+
+================================================================================
+                         DEBIAN COMMANDS REFERENCE
+================================================================================
+
+Package Management:
+  sudo apt-get update              # Update package list
+  sudo apt-get install -y package  # Install package
+  sudo apt-get remove package      # Remove package
+  sudo apt-get upgrade             # Upgrade all packages
+
+Python & Virtual Environment:
+  python3 --version                # Check Python version
+  python3 -m venv venv             # Create venv
+  source venv/bin/activate         # Activate venv
+  deactivate                        # Deactivate venv
+  pip install -r requirements.txt   # Install packages
+  pip list                          # List installed packages
+
+File Operations:
+  ls                                # List files
+  ls -la                            # List with details
+  pwd                               # Print working directory
+  cd /path/to/dir                   # Change directory
+  cp file1 file2                    # Copy file
+  mv file1 file2                    # Move/rename file
+  rm file                           # Delete file
+  rm -r directory                   # Delete directory
+  chmod +x script.py                # Make executable
+  nano filename                     # Edit file
+
+Process Management:
+  ps aux                            # List running processes
+  ps aux | grep python              # Find Python processes
+  kill PID                          # Kill process by ID
+  screen -S name                    # Start screen session
+  screen -ls                        # List sessions
+  screen -r name                    # Reattach to session
+
+SSH & Remote:
+  ssh user@host                     # Connect via SSH
+  scp file user@host:/path          # Copy file to remote
+  ssh -X user@host                  # SSH with X11 forwarding
+
+Logging & Monitoring:
+  tail -f logfile                   # Follow log file
+  grep pattern logfile              # Search in file
+  journalctl -u service-name        # System service logs
+  top                               # Monitor processes
+  free -h                           # Check memory
+
+================================================================================
+                      FULL SETUP SCRIPT (Optional)
+================================================================================
+
+If you want to automate everything, save as setup.sh:
+
+  #!/bin/bash
+  set -e
+
+  echo "Installing system dependencies..."
+  sudo apt-get update
+  sudo apt-get install -y \
+    python3 python3-pip python3-venv \
+    build-essential libpq-dev \
+    tesseract-ocr libtesseract-dev \
+    screen
+
+  echo "Creating virtual environment..."
+  python3 -m venv venv
+  source venv/bin/activate
+
+  echo "Installing Python packages..."
+  pip install --upgrade pip
+  pip install -r requirements.txt
+
+  echo "Setup complete!"
+  echo "Next: python TEST_LOGGER.py"
+
+Run it:
+  chmod +x setup.sh
+  ./setup.sh
+
+================================================================================
+                       VERIFYING ON DEBIAN
+================================================================================
+
+Tesseract Installation:
+  which tesseract                   # Should show /usr/bin/tesseract
+  tesseract --version               # Should show version
+
+Python Environment:
+  python3 -c "import pytesseract; print(pytesseract.__version__)"
+
+Database Connection:
+  python3 -c "
+  import psycopg2
+  conn = psycopg2.connect(
+      host='zofojiubrykbtmstfhzx.supabase.co',
+      user='postgres',
+      password='YOUR_PASSWORD',
+      database='postgres'
+  )
+  print('✓ Connection OK')
+  conn.close()
+  "
+
+Screen Capture:
+  python3 -c "
+  import mss
+  with mss.mss() as sct:
+      print('✓ Screen capture OK')
+  "
+
+================================================================================
+                      PRODUCTION DEPLOYMENT
+================================================================================
+
+For 24/7 logging on Debian VM:
+
+1. Use systemd service (best option):
+   - See "Option 2: Using Systemd" above
+   - Auto-starts on boot
+   - Auto-restarts if crashes
+   - Easy to manage
+
+2. Or use screen (simple option):
+   - See "Option 1: Using Screen" above
+   - Manual start, but simple to manage
+   - Easy to view logs in real-time
+
+3. Monitor with:
+   - Dashboard: https://app.supabase.com → SQL Editor
+   - Logs: systemctl status aviator-logger (if using systemd)
+   - Logs: tail -f /path/to/output.log (if using screen)
+
+Tips:
+  - Keep .env file secure (chmod 600)
+  - Back up database regularly
+  - Monitor disk space
+  - Check system logs for errors
+
+================================================================================
+                          NEXT STEPS
+================================================================================
+
+1. SSH into Debian VM
+2. Follow STEP 1-6 above
+3. Verify with: python TEST_LOGGER.py
+4. Start logging: python standalone_round_logger.py
+5. Set up systemd or screen for persistent operation
+6. Monitor via Supabase Dashboard
+
+For detailed troubleshooting:
+  See README_STANDALONE_LOGGER.txt
+  See STANDALONE_LOGGER_SETUP.md
+
+================================================================================
+                        DEBIAN SETUP COMPLETE
+================================================================================
+
+You now have:
+  ✓ Tesseract OCR installed
+  ✓ Python virtual environment
+  ✓ All dependencies installed
+  ✓ Supabase credentials configured
+  ✓ Ready to log multipliers!
+
+Start with:
+  source venv/bin/activate
+  python standalone_round_logger.py
+
+Or use systemd for 24/7 operation (recommended for production).
+
+Questions? Check README_STANDALONE_LOGGER.txt or STANDALONE_LOGGER_SETUP.md
+
+Happy logging on Debian! 🚀
+
+================================================================================

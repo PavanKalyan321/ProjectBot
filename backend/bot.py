@@ -1576,6 +1576,15 @@ class AviatorBot:
 
     def _cleanup_logging(self):
         """Restore stdout and close log file."""
+        # Cleanup MSS capture context to prevent "unable to auto-find suitable render" error
+        if self.multiplier_reader is not None:
+            try:
+                if hasattr(self.multiplier_reader, 'sct') and self.multiplier_reader.sct is not None:
+                    self.multiplier_reader.sct.close()
+                    print("✅ Closed MSS capture context")
+            except Exception as e:
+                print(f"⚠️  Error closing MSS context: {e}")
+
         if self.tee:
             print(f"\n{'='*80}")
             print(f"📝 LOGGING SESSION ENDED: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
