@@ -1,0 +1,174 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║           IFRAME COMMUNICATION METHODS - VISUAL GUIDE                       ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+YOUR QUESTION:
+"When multiplier is running in iframe window, what other methods can we use?"
+
+ANSWER:
+You have 10 different methods to communicate with the iframe.
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                          THE 10 METHODS                                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+1️⃣ POSTMESSAGE (Currently Being Used)
+   • What: Send structured messages back-and-forth with iframe
+   • Best: Cross-origin, secure, two-way communication
+   • Speed: Medium ⏱️ | Reliability: ⭐⭐⭐
+
+2️⃣ MUTATION OBSERVER (Real-Time DOM Changes)
+   • What: Watch for DOM changes automatically
+   • Best: Real-time multiplier tracking (AUTOMATIC UPDATES)
+   • Speed: FAST ⚡ | Reliability: ⭐⭐⭐⭐
+
+3️⃣ CLICK SIMULATION (Trigger User Actions)
+   • What: Simulate user clicks on buttons/elements
+   • Best: Trigger "Place Bet", "Cash Out", etc.
+   • Speed: FAST ⚡ | Reliability: ⭐⭐⭐
+
+4️⃣ WINDOW OBJECT ACCESS (Direct JavaScript APIs)
+   • What: Access JavaScript objects exposed by iframe
+   • Best: Direct access to game state objects
+   • Speed: INSTANT ⚡⚡ | Reliability: ⭐⭐⭐
+
+5️⃣ CALL IFRAME FUNCTION (Execute Code)
+   • What: Call JavaScript functions exposed by iframe
+   • Best: Execute game functions with parameters
+   • Speed: Medium ⏱️ | Reliability: ⭐⭐⭐
+
+6️⃣ REGEX TEXT SEARCH (Pattern Matching)
+   • What: Search iframe text for patterns
+   • Best: Last-resort extraction when nothing else works
+   • Speed: SLOW 🐢 | Reliability: ⭐⭐
+
+7️⃣ CONSOLE INTERCEPTION (Capture Debug Logs)
+   • What: Intercept iframe console.log calls
+   • Best: Extract data from debug logging
+   • Speed: Medium ⏱️ | Reliability: ⭐⭐
+
+8️⃣ STORAGE WATCHER (Monitor State Changes)
+   • What: Monitor localStorage/sessionStorage changes
+   • Best: Track persistent game state
+   • Speed: Medium ⏱️ | Reliability: ⭐⭐⭐
+
+9️⃣ PERFORMANCE OBSERVER (Network Monitoring)
+   • What: Monitor network requests and API calls
+   • Best: Understand what data iframe is requesting
+   • Speed: SLOW 🐢 | Reliability: ⭐⭐⭐
+
+🔟 MULTI-METHOD FALLBACK (Try All Automatically)
+   • What: Automatically try all methods until one works
+   • Best: MOST RELIABLE - Never fails, finds best method
+   • Speed: Medium ⏱️ | Reliability: ⭐⭐⭐⭐⭐
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    QUICK SELECTION GUIDE                                   ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+What Do You Want To Do?
+├─ Extract multiplier value once
+│  └─→ Use Method 10 (Multi-Method Fallback) ✅ MOST RELIABLE
+│
+├─ Monitor multiplier in real-time
+│  ├─→ Use Method 2 (Mutation Observer) ✅ BEST & FASTEST
+│  └─→ Use Method 1 (PostMessage) ✅ IF IFRAME SUPPORTS IT
+│
+├─ Trigger game action (bet, cash out)
+│  ├─→ Use Method 3 (Click Simulation) ✅ EASIEST
+│  └─→ Use Method 5 (Call Function) ✅ IF FUNCTION EXISTS
+│
+├─ Access game state directly
+│  └─→ Use Method 4 (Window Object) ✅ INSTANT
+│
+├─ Don't know what to do?
+│  └─→ Use Method 10 (Multi-Method) ✅ AUTOMATIC SELECTION
+│
+└─ Debug/explore iframe
+   ├─→ Use testAllMethods() ✅ SEE WHAT WORKS
+   └─→ Use observePerformance() ✅ SEE NETWORK CALLS
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    GETTING STARTED                                         ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+STEP 1: Test What Works
+────────────────────────
+import { testAllMethods } from '@/lib/iframe-communication';
+await testAllMethods(iframeRef);
+→ Shows which methods work with YOUR iframe
+
+STEP 2: Use Best Method
+──────────────────────
+import { extractMultiplierMultiMethod } from '@/lib/iframe-communication';
+const result = await extractMultiplierMultiMethod(iframeRef);
+console.log('Multiplier:', result.value, 'Method:', result.method);
+
+STEP 3: For Real-Time Monitoring
+────────────────────────────────
+import { setupMutationObserver } from '@/lib/iframe-communication';
+setupMutationObserver(iframeRef, '.multiplier', (old, new) => {
+  console.log('Multiplier changed:', new);
+});
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    FILES TO READ                                           ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+START HERE:
+→ IFRAME_METHODS_INDEX.md (navigation & quick links)
+
+LEARN DETAILS:
+→ COMMUNICATION_METHODS_SUMMARY.md (overview & when to use)
+→ IFRAME_COMMUNICATION_METHODS.md (detailed guide to all 10)
+
+TEST & DEBUG:
+→ TEST_IFRAME_METHODS.md (how to test each method)
+
+IMPLEMENT:
+→ src/lib/iframe-communication.ts (the actual code)
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    QUICK CODE REFERENCE                                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+// Test all methods
+await testAllMethods(iframeRef);
+
+// Automatic best method
+const result = await extractMultiplierMultiMethod(iframeRef);
+
+// Send message to iframe
+await sendPostMessage(iframeRef, { type: "GET_MULTIPLIER" });
+
+// Monitor for changes
+setupMutationObserver(iframeRef, '.multiplier', (old, new) => {});
+
+// Click a button
+simulateClick(iframeRef, 'button.place-bet');
+
+// Access object
+await accessWindowObject(iframeRef, 'Game.state');
+
+// Call function
+await callIframeFunction(iframeRef, 'Game.getMultiplier');
+
+// Search text
+searchIframeText(iframeRef, /(\d+\.\d+)x/);
+
+// Watch storage
+watchStorage(iframeRef, (key, value) => {});
+
+// Monitor network
+observePerformance(iframeRef);
+
+// Intercept logs
+interceptConsole(iframeRef, (msg) => msg.includes('multiplier'));
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Version: 1.0
+Status: ✅ Complete & Ready to Use
+Created: 2025-11-25
+
+═══════════════════════════════════════════════════════════════════════════════

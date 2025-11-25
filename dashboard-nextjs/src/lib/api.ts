@@ -149,3 +149,88 @@ export async function cleanupData(): Promise<{ status: string } | null> {
     return null;
   }
 }
+
+// Multiplier logging API functions
+
+export interface MultiplierLogRequest {
+  bot_id: string;
+  multiplier: number;
+  round_id?: number;
+  is_crash?: boolean;
+  is_cashout?: boolean;
+  ocr_confidence?: number;
+  game_name?: string;
+  platform_code?: string;
+  timestamp?: string;
+}
+
+export interface RoundCreateRequest {
+  bot_id: string;
+  round_number: number;
+  stake_value?: number;
+  strategy_name?: string;
+  game_name?: string;
+  platform_code?: string;
+  session_id?: string;
+}
+
+export async function logMultiplier(data: MultiplierLogRequest): Promise<{
+  status: string;
+  message: string;
+  record_id?: number;
+  timestamp?: string;
+} | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/multiplier/log`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      console.error("Error logging multiplier:", error);
+      return error;
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error logging multiplier:", error);
+    return null;
+  }
+}
+
+export async function createRound(data: RoundCreateRequest): Promise<{
+  status: string;
+  message: string;
+  round_id?: number;
+} | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/multiplier/create_round`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      console.error("Error creating round:", error);
+      return error;
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error creating round:", error);
+    return null;
+  }
+}
+
+export async function getLatestRound(botId: string): Promise<{
+  status: string;
+  round?: { id: number; number: number };
+} | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/multiplier/latest_round/${botId}`);
+    if (!response.ok) throw new Error("Failed to get latest round");
+    return await response.json();
+  } catch (error) {
+    console.error("Error getting latest round:", error);
+    return null;
+  }
+}

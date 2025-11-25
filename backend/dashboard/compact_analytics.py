@@ -15,6 +15,18 @@ from collections import deque, defaultdict
 import threading
 import webbrowser
 import time
+import logging
+
+# Initialize multiplier logger
+try:
+    from backend.database.multiplier_logger import MultiplierLogger
+    from backend.dashboard.multiplier_api import init_multiplier_api
+    MULTIPLIER_LOGGER_AVAILABLE = True
+except ImportError:
+    MULTIPLIER_LOGGER_AVAILABLE = False
+    logging.warning("⚠️ MultiplierLogger not available - database features disabled")
+
+logger = logging.getLogger(__name__)
 
 class CompactAnalyticsDashboard:
     """Half-screen optimized real-time analytics dashboard."""
@@ -28,6 +40,16 @@ class CompactAnalyticsDashboard:
         self.rounds_csv = "backend/aviator_rounds_history.csv"
         self.bets_csv = "backend/bet_history.csv"
         self.automl_csv = "backend/bot_automl_performance.csv"
+
+        # Initialize multiplier logger
+        self.multiplier_logger = None
+        if MULTIPLIER_LOGGER_AVAILABLE:
+            try:
+                self.multiplier_logger = MultiplierLogger()
+                init_multiplier_api(self.app, self.multiplier_logger)
+                logger.info("✅ Multiplier logger initialized")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to initialize multiplier logger: {e}")
 
         # Real-time data
         self.current_round = {}
