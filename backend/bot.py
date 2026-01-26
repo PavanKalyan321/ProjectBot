@@ -821,21 +821,37 @@ class AviatorBot:
         self.round_state["final_multiplier"] = 0.0
         return False, 0.0
 
-    def monitor_and_cashout(self, target_multiplier):
+    def monitor_and_cashout(self, target_multiplier, pos2_active=False, pos2_target=0):
         """
         Monitor multiplier and cashout when target reached using MultiplierReader.
         After cashout, continues monitoring to get the final crash multiplier.
         Stores final_multiplier in round_state for reliable CSV logging.
-        
+
+        Supports dual position monitoring:
+        - Position 1: ML-based (primary)
+        - Position 2: Timer-based conservative (secondary, if pos2_active=True)
+
         Returns:
-            tuple: (success: bool, profit: float, cashout_mult: float, final_mult: float, result_type: str)
+            dict: {
+                'position1': {'success': bool, 'profit': float, 'cashout_mult': float, 'final_mult': float},
+                'position2': {'success': bool, 'profit': float, 'cashout_mult': float, 'final_mult': float}
+            }
         """
         print(f"\n👀 Monitoring multiplier for target: {target_multiplier:.2f}x")
+        if pos2_active:
+            print(f"   Position 2 target: {pos2_target:.2f}x")
         print("   " + "-"*70)
-        
+
         round_start = time.time()
-        cashout_triggered = False
-        cashout_mult = 0
+        # Position 1 tracking
+        pos1_cashout_triggered = False
+        pos1_cashout_mult = 0
+        pos1_cashed_out = False
+        # Position 2 tracking
+        pos2_cashout_triggered = False
+        pos2_cashout_mult = 0
+        pos2_cashed_out = False
+
         last_displayed_mult = None
         stake_used = self.current_stake
         last_valid_mult = 0.0  # Track last valid multiplier throughout round
@@ -855,7 +871,7 @@ class AviatorBot:
                     remaining = target_multiplier - current_mult
                     
                     # Color-coded status
-                    if not cashout_triggered:
+                    if not pos1_cashout_triggered:
                         if remaining > 0.5:
                             status = '🟢 SAFE '
                         elif remaining > 0.2:
@@ -879,7 +895,7 @@ class AviatorBot:
                     # CRITICAL: Store final multiplier in round state
                     self.round_state["final_multiplier"] = final_mult
                     
-                    if cashout_triggered:
+                    if pos1_cashout_triggered:
                         # We already cashed out, just got final multiplier
                         print(f"   🏁 Round ended at {final_mult:.2f}x (cashed out at {cashout_mult:.2f}x)")
                         self.round_state["cashout_multiplier"] = cashout_mult
@@ -895,8 +911,34 @@ class AviatorBot:
                         self.round_state["cashout_multiplier"] = 0.0
                         return False, loss, 0, final_mult, "CRASH"
                 
+                # 🎯 Check Position 2 cashout (if active and target reached)
+                if pos2_active and current_mult and current_mult >= pos2_target and not pos2_cashout_triggered:
+                    print("\n")
+                    print(f"   🎯 POSITION 2 TARGET REACHED: {current_mult:.2f}x - EXECUTING CASHOUT...")
+
+                    time.sleep(0.05)  # Small delay before cashout
+
+                    try:
+                        from utils.betting_helpers import cashout_verified_pos
+                        pos2_cashout_success, pos2_cashout_reason = cashout_verified_pos(
+                            self.config_manager.position2_cashout_coords,
+                            self.detector,
+                            position=2
+                        )
+
+                        if pos2_cashout_success:
+                            print("   ✅ Position 2 Cashout command sent!")
+                            pos2_cashout_mult = current_mult
+                            pos2_cashout_triggered = True
+                            pos2_cashed_out = True
+                            print(f"   Position 2 cashed out at {pos2_cashout_mult:.2f}x")
+                        else:
+                            print(f"   ❌ Position 2 Cashout failed: {pos2_cashout_reason}")
+                    except Exception as e:
+                        print(f"   ❌ Position 2 Cashout error: {e}")
+
                 # Check if we've reached target (and haven't cashed out yet)
-                if current_mult and current_mult >= target_multiplier and not cashout_triggered:
+                if current_mult and current_mult >= target_multiplier and not pos1_cashout_triggered:
                     print("\n")
                     print(f"   🎯 TARGET REACHED: {current_mult:.2f}x - EXECUTING CASHOUT...")
                     
@@ -958,7 +1000,8 @@ class AviatorBot:
                                 self.last_balance = new_balance
 
                                 # Mark cashout successful and continue monitoring for final multiplier
-                                cashout_triggered = True
+                                pos1_cashout_triggered = True
+                                pos1_cashed_out = True
                                 print(f"   👁️  Continuing to monitor for round end...")
 
                             else:
@@ -1031,7 +1074,7 @@ class AviatorBot:
                         # Store in round state
                         self.round_state["final_multiplier"] = final_mult
                         
-                        if cashout_triggered:
+                        if pos1_cashout_triggered:
                             # Already cashed out, just reporting final
                             print(f"   🏁 Round ended at {final_mult:.2f}x (error recovery)")
                             profit = stake_used * (cashout_mult - 1)
@@ -1282,57 +1325,58 @@ class AviatorBot:
                             round_bet_placed = True
                             round_stake = self.current_stake
 
-                            # ===== Position 2: High Multiplier Hunter =====
-                            # Try to place Position 2 BEFORE waiting (faster!)
+                            # ===== Position 2: Timer-based Conservative Betting =====
                             pos2_bet_placed = False
-                            if self.config_manager.position2_enabled and self._is_positive_run_cycle():
-                                print("\n" + "="*80)
-                                print("🎯 Position 2: HIGH MULTIPLIER HUNTER - Positive Cycle Active!")
-                                print("="*80)
+                            pos2_target = 0
 
-                                try:
-                                    from utils.betting_helpers import set_stake_verified_pos, place_bet_with_verification_pos
+                            if self.config_manager.position2_enabled and self.position2_engine:
+                                # Get recent multipliers from history tracker
+                                recent_mults = self.history_tracker.get_recent_multipliers(50)
 
-                                    # Set Position 2 stake (smaller amount) - FAST!
-                                    pos2_stake = self.config_manager.position2_stake_amount
-                                    pos2_set_success = set_stake_verified_pos(
-                                        self.config_manager.position2_stake_coords,
-                                        pos2_stake,
-                                        position=2
-                                    )
+                                should_bet_pos2, pos2_reason, pos2_target = self.position2_engine.should_bet_this_round(recent_mults)
 
-                                    if pos2_set_success:
-                                        # Place Position 2 bet immediately - no extra delays!
-                                        pos2_success, pos2_reason = place_bet_with_verification_pos(
-                                            self.config_manager.position2_bet_button_coords,
-                                            self.detector,
-                                            self.stats,
+                                print(f"\n🎯 Position 2 Check: {pos2_reason}")
+
+                                if should_bet_pos2:
+                                    print(f"💰 Position 2: Betting with target {pos2_target:.2f}x")
+
+                                    try:
+                                        from utils.betting_helpers import set_stake_verified_pos, place_bet_with_verification_pos
+
+                                        pos2_stake = self.config_manager.position2_stake_amount
+                                        if set_stake_verified_pos(
+                                            self.config_manager.position2_stake_coords,
                                             pos2_stake,
                                             position=2
-                                        )
+                                        ):
+                                            # Place Position 2 bet
+                                            pos2_success, pos2_bet_reason = place_bet_with_verification_pos(
+                                                self.config_manager.position2_bet_button_coords,
+                                                self.detector,
+                                                self.stats,
+                                                pos2_stake,
+                                                position=2
+                                            )
 
-                                        if pos2_success:
-                                            pos2_bet_placed = True
-                                            self.stats["position2_enabled_for_round"] = True
-                                            print("✅ Position 2 bet placed successfully!")
+                                            if pos2_success:
+                                                pos2_bet_placed = True
+                                                self.stats["position2_bets_placed"] = self.stats.get("position2_bets_placed", 0) + 1
+                                                self.stats["position2_total_bet"] = self.stats.get("position2_total_bet", 0) + pos2_stake
+                                                print(f"✅ Position 2 bet placed (target: {pos2_target:.2f}x)")
+                                            else:
+                                                print(f"❌ Position 2 bet failed: {pos2_bet_reason}")
                                         else:
-                                            print(f"❌ Position 2 bet failed: {pos2_reason}")
-                                            self.stats["position2_consecutive_losses"] += 1
-                                    else:
-                                        print("❌ Failed to set Position 2 stake")
-                                        self.stats["position2_consecutive_losses"] += 1
+                                            print("❌ Position 2 stake setting failed")
 
-                                except Exception as e:
-                                    print(f"⚠️ Position 2 error: {e}")
-                                    import traceback
-                                    traceback.print_exc()
-                                    self.stats["position2_consecutive_losses"] += 1
-                            else:
-                                self.stats["position2_enabled_for_round"] = False
-                                if not self.config_manager.position2_enabled:
-                                    pass  # Position 2 disabled
-                                elif not self._is_positive_run_cycle():
-                                    print("\n⏸️ Position 2 inactive - not in positive run cycle")
+                                    except Exception as e:
+                                        print(f"⚠️ Position 2 error: {e}")
+                                        import traceback
+                                        traceback.print_exc()
+                                else:
+                                    self.stats["position2_enabled_for_round"] = False
+
+                            elif self.config_manager.position2_enabled and not self.position2_engine:
+                                print("\n⚠️  Position 2 engine not initialized")
 
                             # Now read balance and wait (Position 2 already placed!)
                             print("⏳ Waiting for bets to register...")
@@ -1394,14 +1438,26 @@ class AviatorBot:
                     # Store bet info in round state
                     self.round_state["bet_placed"] = True
                     self.round_state["stake"] = round_stake
-                    
-                    # We have a bet - monitor and try to cashout
-                    success, profit, cashout_mult, final_mult, result_type = self.monitor_and_cashout(self.target_multiplier)
-                    
+
+                    # We have a bet - monitor and try to cashout (both positions)
+                    result = self.monitor_and_cashout(
+                        target_multiplier=self.target_multiplier,
+                        pos2_active=pos2_bet_placed,
+                        pos2_target=pos2_target
+                    )
+
+                    # Unpack Position 1 results
+                    pos1_result = result['position1']
+                    success = pos1_result['success']
+                    profit = pos1_result['profit']
+                    cashout_mult = pos1_result['cashout_mult']
+                    final_mult = pos1_result['final_mult']
+                    result_type = "WIN" if pos1_result['success'] else "LOSS"
+
                     # Update round state
                     self.round_state["profit_loss"] = profit
                     self.round_state["completed"] = True
-                    
+
                     round_profit_loss = profit
                     cumulative_profit += profit
                     round_result = result_type
@@ -1410,11 +1466,33 @@ class AviatorBot:
                     if success and self.last_balance:
                         self.last_balance = self.last_balance + profit
 
-                    # Print result
+                    # Print Position 1 result
                     if result_type == "WIN":
-                        print(f"\n✅ WIN: +{profit:.2f} (cashed out at {cashout_mult:.2f}x, round ended at {final_mult:.2f}x)")
+                        print(f"\n✅ Position 1 WIN: +{profit:.2f} (cashed out at {cashout_mult:.2f}x, round ended at {final_mult:.2f}x)")
                     else:
-                        print(f"\n❌ LOSS: {profit:.2f} (crashed at {final_mult:.2f}x)")
+                        print(f"\n❌ Position 1 LOSS: {profit:.2f} (crashed at {final_mult:.2f}x)")
+
+                    # Handle Position 2 result if active
+                    if pos2_bet_placed:
+                        pos2_result = result['position2']
+                        pos2_profit = pos2_result['profit']
+                        pos2_cashout_mult = pos2_result['cashout_mult']
+
+                        if pos2_result['success']:
+                            print(f"✅ Position 2 WIN: +{pos2_profit:.2f} (cashed out at {pos2_cashout_mult:.2f}x)")
+                            self.stats['position2_wins'] = self.stats.get('position2_wins', 0) + 1
+                            self.stats['position2_consecutive_losses'] = 0
+                        else:
+                            print(f"❌ Position 2 LOSS: {pos2_profit:.2f}")
+                            self.stats['position2_losses'] = self.stats.get('position2_losses', 0) + 1
+                            self.stats['position2_consecutive_losses'] = self.stats.get('position2_consecutive_losses', 0) + 1
+
+                        self.stats['position2_profit'] = self.stats.get('position2_profit', 0) + pos2_profit
+                        combined_profit = profit + pos2_profit
+                        print(f"📊 Combined Profit: {combined_profit:+.2f}")
+
+                        # Update cumulative with Position 2 profit
+                        cumulative_profit += pos2_profit
                     
                     if self.last_balance:
                         print(f"   💰 Balance: {self.last_balance:.2f}")
