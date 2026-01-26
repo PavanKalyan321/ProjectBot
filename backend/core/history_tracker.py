@@ -402,4 +402,33 @@ class RoundHistoryTracker:
         """Get cloud sync status."""
         if self.cloud_sync:
             return self.cloud_sync.get_status()
-        return {"available": False}
+
+    def get_recent_multipliers(self, count=50):
+        """
+        Get list of recent multiplier values for Position 2 timer engine.
+
+        Args:
+            count: Number of recent multipliers to retrieve
+
+        Returns:
+            List[float]: Recent multipliers (oldest first, newest last)
+        """
+        try:
+            if not hasattr(self, 'round_history') or not self.round_history:
+                return []
+
+            # Get the last 'count' rounds
+            recent = list(self.round_history)[-count:]
+
+            # Extract multiplier values
+            multipliers = []
+            for r in recent:
+                if 'actual_multiplier' in r and r['actual_multiplier']:
+                    multipliers.append(r['actual_multiplier'])
+                elif 'multiplier' in r and r['multiplier']:
+                    multipliers.append(r['multiplier'])
+
+            return multipliers
+        except Exception as e:
+            print(f"Error getting recent multipliers: {e}")
+            return []

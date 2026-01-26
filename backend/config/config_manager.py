@@ -22,13 +22,21 @@ class ConfigManager:
         self.stake_coords = None
         self.bet_button_coords = None
         self.cashout_coords = None
-        # Position 2 (High Multiplier Hunter)
-        self.position2_enabled = False
+        # Position 2 (Timer-based Conservative)
+        self.position2_enabled = True
         self.position2_stake_coords = None
         self.position2_bet_button_coords = None
         self.position2_cashout_coords = None
-        self.position2_stake_amount = 5
-        self.position2_target_multiplier = 10.0
+        self.position2_stake_amount = 15
+        # NEW: Timer-based conservative settings
+        self.position2_target_multiplier_min = 1.2
+        self.position2_target_multiplier_max = 1.4
+        self.position2_min_green_percent = 60  # Only bet when green% > 60%
+        self.position2_max_red_percent = 30    # Skip when red% > 30%
+        self.position2_lookback_min = 2        # Min rounds to look back
+        self.position2_lookback_max = 20       # Max rounds to look back
+        self.position2_timer_min = 5           # Min rounds between bets
+        self.position2_timer_max = 10          # Max rounds between bets
         # General settings
         self.multiplier_region = None
         self.balance_region = None  # NEW: Balance region
@@ -63,7 +71,14 @@ class ConfigManager:
                 "bet_button_coords": list(self.position2_bet_button_coords) if self.position2_bet_button_coords else None,
                 "cashout_coords": list(self.position2_cashout_coords) if self.position2_cashout_coords else None,
                 "stake_amount": self.position2_stake_amount,
-                "target_multiplier": self.position2_target_multiplier
+                "target_multiplier_min": self.position2_target_multiplier_min,
+                "target_multiplier_max": self.position2_target_multiplier_max,
+                "min_green_percent": self.position2_min_green_percent,
+                "max_red_percent": self.position2_max_red_percent,
+                "lookback_min": self.position2_lookback_min,
+                "lookback_max": self.position2_lookback_max,
+                "timer_min": self.position2_timer_min,
+                "timer_max": self.position2_timer_max
             },
             "multiplier_region": list(self.multiplier_region) if self.multiplier_region else None,
             "balance_region": list(self.balance_region) if self.balance_region else None,
@@ -121,12 +136,20 @@ class ConfigManager:
             # Load Position 2 coordinates and settings
             if "position2" in config:
                 pos2 = config["position2"]
-                self.position2_enabled = pos2.get("enabled", False)
+                self.position2_enabled = pos2.get("enabled", True)
                 self.position2_stake_coords = tuple(pos2["stake_coords"]) if pos2.get("stake_coords") else None
                 self.position2_bet_button_coords = tuple(pos2["bet_button_coords"]) if pos2.get("bet_button_coords") else None
                 self.position2_cashout_coords = tuple(pos2["cashout_coords"]) if pos2.get("cashout_coords") else None
-                self.position2_stake_amount = pos2.get("stake_amount", 5)
-                self.position2_target_multiplier = pos2.get("target_multiplier", 10.0)
+                self.position2_stake_amount = pos2.get("stake_amount", 15)
+                # Load new timer-based conservative settings
+                self.position2_target_multiplier_min = pos2.get("target_multiplier_min", 1.2)
+                self.position2_target_multiplier_max = pos2.get("target_multiplier_max", 1.4)
+                self.position2_min_green_percent = pos2.get("min_green_percent", 60)
+                self.position2_max_red_percent = pos2.get("max_red_percent", 30)
+                self.position2_lookback_min = pos2.get("lookback_min", 2)
+                self.position2_lookback_max = pos2.get("lookback_max", 20)
+                self.position2_timer_min = pos2.get("timer_min", 5)
+                self.position2_timer_max = pos2.get("timer_max", 10)
 
             # Load general settings
             self.multiplier_region = tuple(config["multiplier_region"]) if config.get("multiplier_region") else None
@@ -217,6 +240,48 @@ class ConfigManager:
         print(f"   ✓ History bottom-right: ({h3}, {h4})")
         self.history_region = (h1, h2, h3-h1, h4-h2)
         print(f"\n✓ History region: {self.history_region}")
+
+        # Position 2 Setup
+        print("\n" + "="*60)
+        print("POSITION 2 SETUP (Secondary Slot - Right Side)")
+        print("="*60)
+        print("\nPosition 2 uses timer-based conservative betting")
+        print("It bets at random intervals (5-10 rounds) when conditions are met")
+        print("Cashout targets: 1.2x - 1.4x (conservative)")
+
+        enable_pos2 = input("\nEnable Position 2? (y/n, default=y): ").strip().lower()
+        if enable_pos2 in ['y', 'yes', '']:
+            self.position2_enabled = True
+            print("\n✓ Position 2 enabled")
+
+            print("\n7. Hover over POSITION 2 - STAKE INPUT field (RIGHT slot)...")
+            keyboard.wait('space')
+            self.position2_stake_coords = pyautogui.position()
+            print(f"   ✓ Position 2 stake input: {self.position2_stake_coords}")
+            time.sleep(0.5)
+
+            print("\n8. Hover over POSITION 2 - PLACE BET button (RIGHT slot)...")
+            keyboard.wait('space')
+            self.position2_bet_button_coords = pyautogui.position()
+            print(f"   ✓ Position 2 place bet button: {self.position2_bet_button_coords}")
+            time.sleep(0.5)
+
+            print("\n9. Hover over POSITION 2 - CASHOUT button (RIGHT slot)...")
+            keyboard.wait('space')
+            self.position2_cashout_coords = pyautogui.position()
+            print(f"   ✓ Position 2 cashout button: {self.position2_cashout_coords}")
+            time.sleep(0.5)
+
+            # Configure Position 2 Stake Amount
+            default_stake = input(f"\nPosition 2 stake amount (default=15): ").strip()
+            if default_stake and default_stake.isdigit():
+                self.position2_stake_amount = int(default_stake)
+            else:
+                self.position2_stake_amount = 15
+            print(f"✓ Position 2 stake set to: {self.position2_stake_amount}")
+        else:
+            self.position2_enabled = False
+            print("⚠️  Position 2 disabled - only Position 1 will be used")
 
         self.save_config()
 

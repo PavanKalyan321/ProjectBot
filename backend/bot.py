@@ -13,6 +13,7 @@ from config import ConfigManager
 from readregion import MultiplierReader, AviatorHistoryLogger
 from core import GameStateDetector
 from core.history_tracker import RoundHistoryTracker
+from core.position2_conservative import Position2ConservativeEngine
 
 # Import operating modes
 from modes import run_observation_mode, run_dry_run_mode
@@ -159,6 +160,9 @@ class AviatorBot:
         self.history_tracker = RoundHistoryTracker()  # Initialize here
         self.logger = AviatorHistoryLogger(self.history_file)  # Use logger from readregion.py
         self._initialize_history_file()
+
+        # 🎯 Position 2 Timer-based Conservative Engine
+        self.position2_engine = None  # Will be initialized after config loaded
 
     def _load_stake_from_config(self):
         """Load the current stake from config file (persists across sessions)."""
@@ -497,7 +501,23 @@ class AviatorBot:
 
         # Initialize history tracker
         self.history_tracker = RoundHistoryTracker()
-        
+
+        # 🎯 Initialize Position 2 Timer-based Conservative Engine
+        if self.config_manager.position2_enabled:
+            try:
+                self.position2_engine = Position2ConservativeEngine(self.config_manager)
+                print("\n✅ Position 2 Timer Engine initialized")
+                print(f"   Strategy: Timer-based conservative (1.2x-1.4x cashout)")
+                print(f"   Green% threshold: {self.config_manager.position2_min_green_percent}%")
+                print(f"   Red% threshold: {self.config_manager.position2_max_red_percent}%")
+                print(f"   Timer interval: {self.config_manager.position2_timer_min}-{self.config_manager.position2_timer_max} rounds")
+                print(f"   Lookback range: {self.config_manager.position2_lookback_min}-{self.config_manager.position2_lookback_max} rounds")
+            except Exception as e:
+                print(f"\n❌ Failed to initialize Position 2 engine: {e}")
+                self.position2_engine = None
+        else:
+            print("\n⚠️  Position 2 disabled - only Position 1 will be active")
+
         # Test multiplier reader (3 attempts)
         print("\n🧪 Testing multiplier reader...")
         working = False
